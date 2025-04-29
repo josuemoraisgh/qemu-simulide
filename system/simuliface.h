@@ -35,4 +35,7 @@ bool waitEvent(void);
 
 int simuMain( int argc, char** argv );
 
+void gpioChanged( void *opaque, int pin, int state );
+void dirioChanged( void *opaque, int pin, int dir );
+
 #endif

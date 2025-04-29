@@ -159,8 +159,8 @@ int simuMain( int argc, char** argv )
 
     usleep( 1*1000 );   // Let Simulation fully start running
 
-    //int status = qemu_main_loop();
-    //qemu_cleanup(status);
+    int status = qemu_main_loop();
+    qemu_cleanup(status);
 
     munmap( arena, shMemSize ); // Un-map shared memory
 
@@ -169,4 +169,48 @@ int simuMain( int argc, char** argv )
     printf("QemuDevice: process finished\n");
 
     return 0;
+}
+
+// ----- IRQ Callbacks ---------------------------------------
+
+void gpioChanged( void *opaque, int pin, int state )
+{
+    //picsimlab_write_pin( n, level );
+
+    uint64_t qemuTime = getQemu_ps();
+
+    //printf("write_pin\n");
+
+    if( !waitEvent() ) return;
+
+    uint64_t newState = *m_nextState;
+    newState &= ~(1<<pin);
+    newState |= state<<pin;
+
+    *m_nextState = newState;
+    *m_nextEvent = qemuTime;
+}
+
+void dirioChanged( void *opaque, int pin, int dir )
+{
+    //picsimlab_dir_pin( n, dir );
+
+    uint64_t qemuTime = getQemu_ps();
+
+    if( !waitEvent() ) return;
+
+    if( pin > 0 )          // Set Pin direction
+    {
+        uint64_t newDirec = *m_nextDirec;
+        newDirec &= ~(1<<pin);
+        newDirec |= dir<<pin;
+
+        *m_nextDirec = newDirec;
+    }
+    else                 // Pin extra config
+    {
+        //// pinExtraConfig( dir );
+
+    }
+    *m_nextEvent = qemuTime;
 }
