@@ -8,11 +8,11 @@
 #include "hw/registerfields.h"
 
 #define TYPE_ESP32_GPIO "esp32.gpio"
-#define ESP32_GPIO(obj)             OBJECT_CHECK(Esp32GpioState, (obj), TYPE_ESP32_GPIO)
-#define ESP32_GPIO_GET_CLASS(obj)   OBJECT_GET_CLASS(Esp32GpioClass, obj, TYPE_ESP32_GPIO)
-#define ESP32_GPIO_CLASS(klass)     OBJECT_CLASS_CHECK(Esp32GpioClass, klass, TYPE_ESP32_GPIO)
+#define ESP32_GPIO(obj)           OBJECT_CHECK( Esp32GpioState      , (obj), TYPE_ESP32_GPIO )
+#define ESP32_GPIO_GET_CLASS(obj) OBJECT_GET_CLASS( Esp32GpioClass  , obj  , TYPE_ESP32_GPIO )
+#define ESP32_GPIO_CLASS(klass)   OBJECT_CLASS_CHECK(E sp32GpioClass, klass, TYPE_ESP32_GPIO )
 
-REG32(GPIO_STRAP, 0x0038)
+REG32( GPIO_STRAP, 0x0038 )
 
 #define ESP32_STRAP_MODE_FLASH_BOOT 0x12
 #define ESP32_STRAP_MODE_UART_BOOT  0x0f
@@ -37,15 +37,15 @@ typedef struct Esp32GpioState {
     uint32_t gpio_pin[40];
     uint32_t gpio_in_sel[256];
     uint32_t gpio_out_sel[40];
-    qemu_irq gpios[32];
-    qemu_irq gpios_dir[32];
-    qemu_irq gpios_sync[1];
+    qemu_irq out_irq[32];
+    qemu_irq dir_irq[32];
+    qemu_irq sync_irq[1];
 } Esp32GpioState;
 
-#define ESP32_GPIOS      "esp32_gpios"
-#define ESP32_GPIOS_IN   "esp32_gpios_in"
-#define ESP32_GPIOS_DIR  "esp32_gpios_dir"
-#define ESP32_GPIOS_SYNC "esp32_gpios_sync"
+#define ESP32_OUT_IRQ  "esp32_out_irq"
+#define ESP32_IN_IRQ   "esp32_in_irq"
+#define ESP32_DIR_IRQ  "esp32_dir_irq"
+#define ESP32_SYNC_IRQ "esp32_sync_irq"
 
 typedef struct Esp32GpioClass {
     SysBusDeviceClass parent_class;

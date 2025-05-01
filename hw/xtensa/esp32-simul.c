@@ -277,12 +277,12 @@ static void esp32_soc_add_periph_device(MemoryRegion *dest, void* dev, hwaddr dp
 static void esp32_soc_add_unimp_device(MemoryRegion *dest, const char* name, hwaddr dport_base_addr, size_t size)
 {
     create_unimplemented_device( name, dport_base_addr, size );
-    char * name_apb = g_strdup_printf("%s-apb", name);
+    char* name_apb = g_strdup_printf("%s-apb", name);
     create_unimplemented_device(name_apb, dport_base_addr - DR_REG_DPORT_APB_BASE + APB_REG_BASE, size);
     g_free( name_apb );
 }
 
-static void esp32_soc_realize(DeviceState *dev, Error **errp)
+static void esp32_soc_realize( DeviceState *dev, Error **errp )
 {
     Esp32SocState *s = ESP32_SOC(dev);
     MachineState *ms = MACHINE(qdev_get_machine());
@@ -561,7 +561,7 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
     // --- Simulide --------------------------------
     //psync_irq = qemu_allocate_irqs( psync_irq_handler, NULL, 1 );
     //
-    //qdev_connect_gpio_out_named( DEVICE(&s->gpio) , ESP32_GPIOS_SYNC, 0, psync_irq[0]);
+    //qdev_connect_gpio_out_named( DEVICE(&s->gpio) , ESP32_SYNC_IRQ, 0, psync_irq[0]);
     //qdev_connect_gpio_out_named( DEVICE(&s->iomux), ESP32_IOMUX_SYNC, 0, psync_irq[0]);
     //qdev_connect_gpio_out_named( DEVICE(&s->ledc) , ESP32_LEDC_SYNC , 0, psync_irq[0]);
     //
@@ -582,10 +582,10 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
     {
         if( pin < 32 )
         {
-            qdev_connect_gpio_out_named( DEVICE(&s->gpio), ESP32_GPIOS    , pin, gpio_irq[pin] );
-            qdev_connect_gpio_out_named( DEVICE(&s->gpio), ESP32_GPIOS_DIR, pin, dirio_irq[pin] );
+            qdev_connect_gpio_out_named( DEVICE(&s->gpio), ESP32_OUT_IRQ, pin, gpio_irq[pin] );
+            qdev_connect_gpio_out_named( DEVICE(&s->gpio), ESP32_DIR_IRQ, pin, dirio_irq[pin] );
         }
-        //simuPin_irq[pin] = qdev_get_gpio_in_named( DEVICE( &s->gpio), ESP32_GPIOS_IN, pin );
+        //simuPin_irq[pin] = qdev_get_gpio_in_named( DEVICE( &s->gpio), ESP32_IN_IRQ, pin );
     }
 
 }
