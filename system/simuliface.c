@@ -69,17 +69,7 @@ static void user_timeout_cb( void* opaque )
 
     if( !waitEvent() ) return;
 
-    if( *m_resetHard )
-    {
-        qemu_system_reset( SHUTDOWN_CAUSE_HOST_QMP_SYSTEM_RESET );
-
-        *m_resetHard = false;
-
-        m_resetEvent = qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL )*1000;
-
-        printf("Qemu reset at us %lu\n", m_resetEvent/1000000 );
-    }
-    else *m_nextEvent = getQemu_ps(); // ps
+    *m_nextEvent = getQemu_ps(); // ps
 }
 
 int simuMain( int argc, char** argv )
@@ -118,7 +108,6 @@ int simuMain( int argc, char** argv )
     fflush( stdout );
 
     //------------------------------------------------------------------
-
     bool* start = (bool*)arena;
     int dataSize = 8;
     m_qemuStep  = (bool*)     start;
@@ -130,12 +119,9 @@ int simuMain( int argc, char** argv )
     m_nextEvent = (uint64_t*)(start + 6*dataSize);
     m_nextInput = (uint64_t*)(start + 7*dataSize);
     m_maskInput = (uint64_t*)(start + 8*dataSize);
-
-    m_ClkPeriod = 1*1000*1000; // ~1 ms
-
     //------------------------------------------------------------------
 
-    //runThread( argc, argv );
+    m_ClkPeriod = 1*1000*1000; // ~1 ms
 
     printf("-----------------------------------\n");
     for( int i=0; i<argc; i++)
@@ -164,7 +150,7 @@ int simuMain( int argc, char** argv )
 
     munmap( arena, shMemSize ); // Un-map shared memory
 
-    //shm_unlink( shMemKey );
+    *m_qemuRun = false;
 
     printf("QemuDevice: process finished\n");
 
