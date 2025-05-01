@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "qemu/typedefs.h"
 
 // ------------------------------------------------
 // -------- ARENA ---------------------------------
@@ -25,6 +26,14 @@ extern volatile uint64_t* m_nextDirec;
 extern volatile uint64_t* m_nextEvent;
 
 // ------------------------------------------------
+// ------ IRQ -------------------------------------
+extern qemu_irq* gpio_irq;
+extern qemu_irq* dirio_irq;
+extern qemu_irq* readIn_irq;
+//extern qemu_irq* spi_cs_irq;
+
+extern qemu_irq input_irq[40];
+
 // ------------------------------------------------
 
 extern uint64_t m_timeout;
@@ -37,5 +46,6 @@ int simuMain( int argc, char** argv );
 
 void gpioChanged( void *opaque, int pin, int state );
 void dirioChanged( void *opaque, int pin, int dir );
+void readInput( void *opaque, int n, int value );
 
 #endif

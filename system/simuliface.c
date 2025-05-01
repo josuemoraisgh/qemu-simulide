@@ -14,6 +14,7 @@
 #include "qemu/timer.h"
 #include "sysemu/runstate.h"
 #include "sysemu/sysemu.h"
+#include "hw/irq.h"
 
 // ------------------------------------------------
 // -------- ARENA ---------------------------------
@@ -30,6 +31,14 @@ volatile uint64_t* m_nextDirec;
 volatile uint64_t* m_nextEvent;
 
 // ------------------------------------------------
+
+// ------ IRQ -------------------------------------
+qemu_irq* gpio_irq   = NULL;
+qemu_irq* dirio_irq  = NULL;
+qemu_irq* readIn_irq = NULL;
+//static qemu_irq *spi_cs_irq;
+
+qemu_irq input_irq[40];
 // ------------------------------------------------
 
 uint64_t m_timeout;
@@ -161,8 +170,6 @@ int simuMain( int argc, char** argv )
 
 void gpioChanged( void *opaque, int pin, int state )
 {
-    //picsimlab_write_pin( n, level );
-
     uint64_t qemuTime = getQemu_ps();
 
     //printf("write_pin\n");
@@ -199,4 +206,32 @@ void dirioChanged( void *opaque, int pin, int dir )
 
     }
     *m_nextEvent = qemuTime;
+}
+
+void readInput( void *opaque, int n, int value )
+{
+    uint64_t qemuTime = getQemu_ps();
+
+    if( !waitEvent() ) return;
+
+    *m_nextEvent = qemuTime;
+
+    *m_readInput = true;
+    while( *m_readInput ) // Wait for read completed
+    {
+        m_timeout += 1;
+        if( m_timeout > 1e9 ) return; // Exit if timed out
+    }
+
+    for( int pin=0; pin<40; ++pin )
+    {
+        uint64_t mask = 1LL<<pin;
+        bool state = *m_nextInput & mask;
+
+        if( *m_maskInput & mask )         // Pin changed
+        {
+            if( state ) qemu_irq_raise( input_irq[pin] );
+            else        qemu_irq_lower( input_irq[pin] );
+        }
+    }
 }

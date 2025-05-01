@@ -45,13 +45,6 @@
 
 // ----- Simulide ------------------------------
 #include "../system/simuliface.h"
-
-static qemu_irq *gpio_irq;
-static qemu_irq *dirio_irq;
-//static qemu_irq *psync_irq;
-//static qemu_irq *spi_cs_irq;
-
-//static qemu_irq simuPin_irq[40];
 //----------------------------------------------
 
 
@@ -428,8 +421,8 @@ static void esp32_soc_realize( DeviceState *dev, Error **errp )
                                     qdev_get_gpio_in_named(dev, ESP32_RTC_CPU_STALL_GPIO, i));
     }
 
-    qdev_realize(DEVICE(&s->gpio), &s->periph_bus, &error_fatal);
-    esp32_soc_add_periph_device(sys_mem, &s->gpio, DR_REG_GPIO_BASE);
+    qdev_realize( DEVICE(&s->gpio), &s->periph_bus, &error_fatal );
+    esp32_soc_add_periph_device( sys_mem, &s->gpio, DR_REG_GPIO_BASE );
 
     for( int i = 0; i < ESP32_UART_COUNT; ++i) {
         const hwaddr uart_base[] = {DR_REG_UART_BASE, DR_REG_UART1_BASE, DR_REG_UART2_BASE};
@@ -557,11 +550,12 @@ static void esp32_soc_realize( DeviceState *dev, Error **errp )
 
     qemu_register_reset( (QEMUResetHandler*) esp32_soc_reset, dev );
 
+    DeviceState* gpioS = DEVICE(&s->gpio);
 
     // --- Simulide --------------------------------
-    //psync_irq = qemu_allocate_irqs( psync_irq_handler, NULL, 1 );
-    //
-    //qdev_connect_gpio_out_named( DEVICE(&s->gpio) , ESP32_SYNC_IRQ, 0, psync_irq[0]);
+    readIn_irq = qemu_allocate_irqs( readInput, NULL, 1 );
+
+    qdev_connect_gpio_out_named( gpioS, ESP32_READ_IRQ, 0, readIn_irq[0] );
     //qdev_connect_gpio_out_named( DEVICE(&s->iomux), ESP32_IOMUX_SYNC, 0, psync_irq[0]);
     //qdev_connect_gpio_out_named( DEVICE(&s->ledc) , ESP32_LEDC_SYNC , 0, psync_irq[0]);
     //
@@ -578,16 +572,16 @@ static void esp32_soc_realize( DeviceState *dev, Error **errp )
     dirio_irq = qemu_allocate_irqs( dirioChanged, NULL, 40 );
     gpio_irq  = qemu_allocate_irqs( gpioChanged , NULL, 40 );
 
+
     for( int pin=0; pin<40; pin++ )
     {
         if( pin < 32 )
         {
-            qdev_connect_gpio_out_named( DEVICE(&s->gpio), ESP32_OUT_IRQ, pin, gpio_irq[pin] );
-            qdev_connect_gpio_out_named( DEVICE(&s->gpio), ESP32_DIR_IRQ, pin, dirio_irq[pin] );
+            qdev_connect_gpio_out_named( gpioS, ESP32_OUT_IRQ, pin, gpio_irq[pin] );
+            qdev_connect_gpio_out_named( gpioS, ESP32_DIR_IRQ, pin, dirio_irq[pin] );
         }
-        //simuPin_irq[pin] = qdev_get_gpio_in_named( DEVICE( &s->gpio), ESP32_IN_IRQ, pin );
+        input_irq[pin] = qdev_get_gpio_in_named( gpioS, ESP32_IN_IRQ, pin );
     }
-
 }
 
 static void esp32_soc_init(Object *obj)
