@@ -18,17 +18,8 @@
 
 // ------------------------------------------------
 // -------- ARENA ---------------------------------
-volatile bool* m_qemuStep;
-volatile bool* m_qemuRun;
-volatile bool* m_resetHard;
 
-volatile bool*     m_readInput;
-volatile uint64_t* m_nextInput;
-volatile uint64_t* m_maskInput;
-volatile uint64_t* m_nextState;
-volatile uint64_t* m_nextDirec;
-
-volatile uint64_t* m_nextEvent;
+volatile qemuArena_t* m_arena = NULL;
 
 // ------------------------------------------------
 
@@ -57,13 +48,12 @@ uint64_t getQemu_ps(void)
 
 bool waitEvent(void)
 {
-    while( *m_nextEvent )  // An event is pending, Wait for QemuDevice::runEvent()
+    while( m_arena->nextEvent )  // An event is pending, Wait for QemuDevice::runEvent()
     {
         m_timeout += 1;
         if( m_timeout > 1e9 ) break; // Terminate process if timed out
     }
-
-    if( !*m_qemuRun ) return false;// Simulation stopped
+    if( !m_arena->qemuRun ) return false;// Simulation stopped
 
     return true;
 }
@@ -74,16 +64,16 @@ static void user_timeout_cb( void* opaque )
     int64_t now = qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL );
     timer_mod_ns( qtimer, now + m_ClkPeriod );
 
-    //if( !*m_qemuRun )
+    //if( !m_arena->qemuRun )
 
     if( !waitEvent() ) return;
 
-    *m_nextEvent = getQemu_ps(); // ps
+    m_arena->nextEvent = getQemu_ps(); // ps
 }
 
 int simuMain( int argc, char** argv )
 {
-    const size_t shMemSize = 10*8;
+    const size_t shMemSize = sizeof( qemuArena_t );
     const char*  shMemKey;
 
     if( argc > 2 ) // Check if there are any arguments
@@ -117,17 +107,9 @@ int simuMain( int argc, char** argv )
     fflush( stdout );
 
     //------------------------------------------------------------------
-    bool* start = (bool*)arena;
-    int dataSize = 8;
-    m_qemuStep  = (bool*)     start;
-    m_qemuRun   = (bool*)    (start + 1*dataSize);
-    m_resetHard = (bool*)    (start + 2*dataSize);
-    m_readInput = (bool*)    (start + 3*dataSize);
-    m_nextState = (uint64_t*)(start + 4*dataSize);
-    m_nextDirec = (uint64_t*)(start + 5*dataSize);
-    m_nextEvent = (uint64_t*)(start + 6*dataSize);
-    m_nextInput = (uint64_t*)(start + 7*dataSize);
-    m_maskInput = (uint64_t*)(start + 8*dataSize);
+
+    m_arena = (qemuArena_t*)arena;
+
     //------------------------------------------------------------------
 
     m_ClkPeriod = 1*1000*1000; // ~1 ms
@@ -150,7 +132,7 @@ int simuMain( int argc, char** argv )
     m_resetEvent = qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL );
     timer_mod_ns( qtimer, m_resetEvent + m_ClkPeriod );
 
-    *m_qemuRun = true;  // QemuDevice::stamp() unblocked here
+    m_arena->qemuRun = true;  // QemuDevice::stamp() unblocked here
 
     usleep( 1*1000 );   // Let Simulation fully start running
 
@@ -159,7 +141,7 @@ int simuMain( int argc, char** argv )
 
     munmap( arena, shMemSize ); // Un-map shared memory
 
-    *m_qemuRun = false;
+    m_arena->qemuRun = false;
 
     printf("QemuDevice: process finished\n");
 
@@ -176,12 +158,12 @@ void gpioChanged( void *opaque, int pin, int state )
 
     if( !waitEvent() ) return;
 
-    uint64_t newState = *m_nextState;
+    uint64_t newState = m_arena->nextState;
     newState &= ~(1<<pin);
     newState |= state<<pin;
 
-    *m_nextState = newState;
-    *m_nextEvent = qemuTime;
+    m_arena->nextState = newState;
+    m_arena->nextEvent = qemuTime;
 }
 
 void dirioChanged( void *opaque, int pin, int dir )
@@ -194,18 +176,18 @@ void dirioChanged( void *opaque, int pin, int dir )
 
     if( pin > 0 )          // Set Pin direction
     {
-        uint64_t newDirec = *m_nextDirec;
+        uint64_t newDirec = m_arena->nextDirec;
         newDirec &= ~(1<<pin);
         newDirec |= dir<<pin;
 
-        *m_nextDirec = newDirec;
+        m_arena->nextDirec = newDirec;
     }
     else                 // Pin extra config
     {
         //// pinExtraConfig( dir );
 
     }
-    *m_nextEvent = qemuTime;
+    m_arena->nextEvent = qemuTime;
 }
 
 void readInput( void *opaque, int n, int value )
@@ -214,10 +196,10 @@ void readInput( void *opaque, int n, int value )
 
     if( !waitEvent() ) return;
 
-    *m_nextEvent = qemuTime;
+    m_arena->nextEvent = qemuTime;
 
-    *m_readInput = true;
-    while( *m_readInput ) // Wait for read completed
+    m_arena->readInput = true;
+    while( m_arena->readInput ) // Wait for read completed
     {
         m_timeout += 1;
         if( m_timeout > 1e9 ) return; // Exit if timed out
@@ -226,9 +208,9 @@ void readInput( void *opaque, int n, int value )
     for( int pin=0; pin<40; ++pin )
     {
         uint64_t mask = 1LL<<pin;
-        bool state = *m_nextInput & mask;
+        bool state = m_arena->nextInput & mask;
 
-        if( *m_maskInput & mask )         // Pin changed
+        if( m_arena->maskInput & mask )         // Pin changed
         {
             if( state ) qemu_irq_raise( input_irq[pin] );
             else        qemu_irq_lower( input_irq[pin] );

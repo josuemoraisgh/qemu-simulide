@@ -13,17 +13,18 @@
 
 // ------------------------------------------------
 // -------- ARENA ---------------------------------
-extern volatile bool* m_qemuStep ;
-extern volatile bool* m_qemuRun  ;
-extern volatile bool* m_resetHard;
 
-extern volatile bool*     m_readInput;
-extern volatile uint64_t* m_nextInput;
-extern volatile uint64_t* m_maskInput;
-extern volatile uint64_t* m_nextState;
-extern volatile uint64_t* m_nextDirec;
+typedef struct qemuArena{
+    bool     qemuRun;
+    bool     readInput;
+    uint64_t nextInput;
+    uint64_t maskInput;
+    uint64_t nextState;
+    uint64_t nextDirec;
+    uint64_t nextEvent;
+} qemuArena_t;
 
-extern volatile uint64_t* m_nextEvent;
+extern volatile qemuArena_t* m_arena;
 
 // ------------------------------------------------
 // ------ IRQ -------------------------------------
