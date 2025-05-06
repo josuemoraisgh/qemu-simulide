@@ -21,7 +21,7 @@
 #include "hw/xtensa/xtensa_memory.h"
 #include "hw/misc/unimp.h"
 #include "hw/irq.h"
-#include "hw/i2c/i2c.h"
+//#include "hw/i2c/i2c.h"
 #include "hw/qdev-properties.h"
 #include "hw/xtensa/esp32.h"
 #include "hw/misc/ssi_psram.h"
@@ -461,26 +461,17 @@ static void esp32_soc_realize( DeviceState *dev, Error **errp )
     }
     s->timg[0].wdt_en_at_reset = true;
 
+    const hwaddr spi_base[] = { DR_REG_SPI0_BASE, DR_REG_SPI1_BASE, DR_REG_SPI2_BASE, DR_REG_SPI3_BASE };
     for( int i = 0; i < ESP32_SPI_COUNT; ++i) {
-        const hwaddr spi_base[] = {
-            DR_REG_SPI0_BASE, DR_REG_SPI1_BASE, DR_REG_SPI2_BASE, DR_REG_SPI3_BASE
-        };
         qdev_realize(DEVICE(&s->spi[i]), &s->periph_bus, &error_fatal);
-
         esp32_soc_add_periph_device(sys_mem, &s->spi[i], spi_base[i]);
-
         sysbus_connect_irq(SYS_BUS_DEVICE(&s->spi[i]), 0,
                            qdev_get_gpio_in(intmatrix_dev, ETS_SPI0_INTR_SOURCE + i));
     }
-
+    const hwaddr i2c_base[] = { DR_REG_I2C_EXT_BASE, DR_REG_I2C1_EXT_BASE };
     for( int i = 0; i < ESP32_I2C_COUNT; i++) {
-        const hwaddr i2c_base[] = {
-            DR_REG_I2C_EXT_BASE, DR_REG_I2C1_EXT_BASE
-        };
         qdev_realize(DEVICE(&s->i2c[i]), &s->periph_bus, &error_fatal);
-
         esp32_soc_add_periph_device(sys_mem, &s->i2c[i], i2c_base[i]);
-
         sysbus_connect_irq(SYS_BUS_DEVICE(&s->i2c[i]), 0,
                            qdev_get_gpio_in(intmatrix_dev, ETS_I2C_EXT0_INTR_SOURCE + i));
     }
@@ -508,6 +499,9 @@ static void esp32_soc_realize( DeviceState *dev, Error **errp )
     sysbus_connect_irq(SYS_BUS_DEVICE(&s->sdmmc), 0,
                        qdev_get_gpio_in(intmatrix_dev, ETS_SDIO_HOST_INTR_SOURCE));
 
+    qdev_realize( DEVICE(&s->iomux), &s->periph_bus, &error_abort);
+    esp32_soc_add_periph_device( sys_mem, &s->iomux, DR_REG_IO_MUX_BASE);
+
     /* Provide internal RAM MemoryRegion to the RGB display */
     s->rgb.intram = dram;
     qdev_realize(DEVICE(&s->rgb), &s->periph_bus, &error_abort);
@@ -517,7 +511,7 @@ static void esp32_soc_realize( DeviceState *dev, Error **errp )
     esp32_soc_add_unimp_device( sys_mem, "esp32.analog" , DR_REG_ANA_BASE     , 0x1000 );
     esp32_soc_add_unimp_device( sys_mem, "esp32.rtcio"  , DR_REG_RTCIO_BASE   , 0x400  );
     esp32_soc_add_unimp_device( sys_mem, "esp32.rtcio"  , DR_REG_SENS_BASE    , 0x400  );
-    esp32_soc_add_unimp_device( sys_mem, "esp32.iomux"  , DR_REG_IO_MUX_BASE  , 0x2000 );
+//    esp32_soc_add_unimp_device( sys_mem, "esp32.iomux"  , DR_REG_IO_MUX_BASE  , 0x2000 );
     esp32_soc_add_unimp_device( sys_mem, "esp32.hinf"   , DR_REG_HINF_BASE    , 0x1000 );
     esp32_soc_add_unimp_device( sys_mem, "esp32.slc"    , DR_REG_SLC_BASE     , 0x1000 );
     esp32_soc_add_unimp_device( sys_mem, "esp32.slchost", DR_REG_SLCHOST_BASE , 0x1000 );
@@ -549,39 +543,6 @@ static void esp32_soc_realize( DeviceState *dev, Error **errp )
     cpu_physical_memory_write( apb_ctrl_date_reg, &apb_ctrl_date_reg_val, 4 );
 
     qemu_register_reset( (QEMUResetHandler*) esp32_soc_reset, dev );
-
-    DeviceState* gpioS = DEVICE(&s->gpio);
-
-    // --- Simulide --------------------------------
-    readIn_irq = qemu_allocate_irqs( readInput, NULL, 1 );
-
-    qdev_connect_gpio_out_named( gpioS, ESP32_READ_IRQ, 0, readIn_irq[0] );
-    //qdev_connect_gpio_out_named( DEVICE(&s->iomux), ESP32_IOMUX_SYNC, 0, psync_irq[0]);
-    //qdev_connect_gpio_out_named( DEVICE(&s->ledc) , ESP32_LEDC_SYNC , 0, psync_irq[0]);
-    //
-    //spi_cs_irq = qemu_allocate_irqs( spi_cs_irq_handler, NULL, 8 );
-    //
-    //qdev_connect_gpio_out_named( DEVICE(&s->spi[2]), SSI_GPIO_CS, 0, spi_cs_irq[0]);
-    //qdev_connect_gpio_out_named( DEVICE(&s->spi[2]), SSI_GPIO_CS, 1, spi_cs_irq[1]);
-    //qdev_connect_gpio_out_named( DEVICE(&s->spi[2]), SSI_GPIO_CS, 2, spi_cs_irq[2]);
-    //
-    //qdev_connect_gpio_out_named( DEVICE(&s->spi[3]), SSI_GPIO_CS, 0, spi_cs_irq[4]);
-    //qdev_connect_gpio_out_named( DEVICE(&s->spi[3]), SSI_GPIO_CS, 1, spi_cs_irq[5]);
-    //qdev_connect_gpio_out_named( DEVICE(&s->spi[3]), SSI_GPIO_CS, 2, spi_cs_irq[6]);
-
-    dirio_irq = qemu_allocate_irqs( dirioChanged, NULL, 40 );
-    gpio_irq  = qemu_allocate_irqs( gpioChanged , NULL, 40 );
-
-
-    for( int pin=0; pin<40; pin++ )
-    {
-        if( pin < 32 )
-        {
-            qdev_connect_gpio_out_named( gpioS, ESP32_OUT_IRQ, pin, gpio_irq[pin] );
-            qdev_connect_gpio_out_named( gpioS, ESP32_DIR_IRQ, pin, dirio_irq[pin] );
-        }
-        input_irq[pin] = qdev_get_gpio_in_named( gpioS, ESP32_IN_IRQ, pin );
-    }
 }
 
 static void esp32_soc_init(Object *obj)
@@ -660,6 +621,8 @@ static void esp32_soc_init(Object *obj)
     object_initialize_child( obj, "flash_enc", &s->flash_enc, TYPE_ESP32_FLASH_ENCRYPTION );
     object_initialize_child( obj, "sdmmc"    , &s->sdmmc    , TYPE_DWC_SDMMC );
     object_initialize_child( obj, "rgb"      , &s->rgb      , TYPE_ESP_RGB );
+
+    object_initialize_child( obj, "iomux"    , &s->iomux    , TYPE_ESP32_IOMUX);
 
     qdev_init_gpio_in_named( DEVICE(s), esp32_dig_reset     , ESP32_RTC_DIG_RESET_GPIO, 1 );
     qdev_init_gpio_in_named( DEVICE(s), esp32_cpu_reset     , ESP32_RTC_CPU_RESET_GPIO, ESP32_CPU_COUNT );
@@ -766,9 +729,14 @@ static void esp32_machine_init_i2c(Esp32SocState *s)
      * we can move them to the sysbus and thus enable creation of i2c devices.
      */
     DeviceState *i2c_master = DEVICE(&s->i2c[0]);
-    I2CBus* i2c_bus  = I2C_BUS( qdev_get_child_bus(i2c_master, "i2c") );
-    I2CSlave* tmp105 = i2c_slave_create_simple( i2c_bus, "tmp105", 0x48 );
-    object_property_set_int( OBJECT(tmp105), "temperature", 25 * 1000, &error_fatal );
+    I2CBus* i2c_bus  = I2C_BUS( qdev_get_child_bus( i2c_master, "i2c") );
+    //I2CSlave* tmp105 = i2c_slave_create_simple( i2c_bus, "tmp105", 0x48 );
+    //object_property_set_int( OBJECT(tmp105), "temperature", 25 * 1000, &error_fatal );
+    i2c_slave_create_simple( i2c_bus, "simulide_i2c", 0x00 );
+
+    DeviceState *i2c_master1 = DEVICE(&s->i2c[1]);
+    I2CBus* i2c_bus1 = I2C_BUS( qdev_get_child_bus( i2c_master1, "i2c") );
+    i2c_slave_create_simple( i2c_bus1, "simulide_i2c", 0x01 );
 }
 
 static void esp32_machine_init_openeth(Esp32SocState *ss)

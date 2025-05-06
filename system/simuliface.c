@@ -23,15 +23,6 @@ volatile qemuArena_t* m_arena = NULL;
 
 // ------------------------------------------------
 
-// ------ IRQ -------------------------------------
-qemu_irq* gpio_irq   = NULL;
-qemu_irq* dirio_irq  = NULL;
-qemu_irq* readIn_irq = NULL;
-//static qemu_irq *spi_cs_irq;
-
-qemu_irq input_irq[40];
-// ------------------------------------------------
-
 uint64_t m_timeout;
 uint64_t m_resetEvent;
 uint64_t m_ClkPeriod;
@@ -73,8 +64,8 @@ static void user_timeout_cb( void* opaque )
 
 int simuMain( int argc, char** argv )
 {
-    const size_t shMemSize = sizeof( qemuArena_t );
-    const char*  shMemKey;
+    const int   shMemSize = sizeof( qemuArena_t );
+    const char* shMemKey;
 
     if( argc > 2 ) // Check if there are any arguments
     {
@@ -102,7 +93,7 @@ int simuMain( int argc, char** argv )
         printf("Error mapping arena\n");
         return 1;
     }
-    else printf("arena mapped\n");
+    else printf("arena mapped %i bytes\n", shMemSize );
 
     fflush( stdout );
 
@@ -146,74 +137,4 @@ int simuMain( int argc, char** argv )
     printf("QemuDevice: process finished\n");
 
     return 0;
-}
-
-// ----- IRQ Callbacks ---------------------------------------
-
-void gpioChanged( void *opaque, int pin, int state )
-{
-    uint64_t qemuTime = getQemu_ps();
-
-    //printf("write_pin\n");
-
-    if( !waitEvent() ) return;
-
-    uint64_t newState = m_arena->nextState;
-    newState &= ~(1<<pin);
-    newState |= state<<pin;
-
-    m_arena->nextState = newState;
-    m_arena->nextEvent = qemuTime;
-}
-
-void dirioChanged( void *opaque, int pin, int dir )
-{
-    //picsimlab_dir_pin( n, dir );
-
-    uint64_t qemuTime = getQemu_ps();
-
-    if( !waitEvent() ) return;
-
-    if( pin > 0 )          // Set Pin direction
-    {
-        uint64_t newDirec = m_arena->nextDirec;
-        newDirec &= ~(1<<pin);
-        newDirec |= dir<<pin;
-
-        m_arena->nextDirec = newDirec;
-    }
-    else                 // Pin extra config
-    {
-        //// pinExtraConfig( dir );
-
-    }
-    m_arena->nextEvent = qemuTime;
-}
-
-void readInput( void *opaque, int n, int value )
-{
-    uint64_t qemuTime = getQemu_ps();
-
-    if( !waitEvent() ) return;
-
-    m_arena->nextEvent = qemuTime;
-
-    m_arena->readInput = true;
-    while( m_arena->readInput ) // Wait for read completed
-    {
-        m_timeout += 1;
-        if( m_timeout > 1e9 ) return; // Exit if timed out
-    }
-
-    for( int pin=0; pin<40; ++pin )
-    {
-        uint64_t mask = 1LL<<pin;
-        bool state = m_arena->nextInput & mask;
-
-        if( m_arena->maskInput & mask )         // Pin changed
-        {
-            if( state ) qemu_irq_raise( input_irq[pin] );
-            else        qemu_irq_lower( input_irq[pin] );
-        }
-    }
 }

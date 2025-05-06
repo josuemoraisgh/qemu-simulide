@@ -31,18 +31,8 @@ typedef struct Esp32GpioState {
     uint32_t gpio_enable;
     uint32_t gpio_pin[40];
     uint32_t gpio_in_sel[256];
-    uint32_t gpio_out_sel[40];
-    qemu_irq out_irq[32];
-    qemu_irq dir_irq[32];
-    qemu_irq read_irq;
-    qemu_irq conf_irq;
+    uint32_t gpio_out_sel[256];
 } Esp32GpioState;
-
-#define ESP32_OUT_IRQ  "esp32_out_irq"
-#define ESP32_IN_IRQ   "esp32_in_irq"
-#define ESP32_DIR_IRQ  "esp32_dir_irq"
-#define ESP32_READ_IRQ "esp32_read_irq"
-#define ESP32_CONF_IRQ "esp32_conf_irq"
 
 typedef struct Esp32GpioClass {
     SysBusDeviceClass parent_class;

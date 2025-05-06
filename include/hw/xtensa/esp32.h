@@ -24,6 +24,8 @@
 #include "hw/sd/dwc_sdmmc.h"
 #include "hw/display/esp_rgb.h"
 
+#include "hw/misc/esp32_iomux.h"
+
 typedef struct Esp32SocState {
     /*< private >*/
     DeviceState parent_obj;
@@ -48,6 +50,8 @@ typedef struct Esp32SocState {
     Esp32EfuseState efuse;
     Esp32FlashEncryptionState flash_enc;
     ESPRgbState rgb;
+
+    Esp32IomuxState iomux;
 
     DWCSDMMCState sdmmc;
     DeviceState *eth;

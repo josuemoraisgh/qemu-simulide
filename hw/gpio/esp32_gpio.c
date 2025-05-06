@@ -20,6 +20,73 @@
 #include "hw/qdev-properties.h"
 #include "hw/gpio/esp32_gpio.h"
 
+#include "../system/simuliface.h"
+
+
+static void inputChanged( Esp32GpioState *gpioS, int pin, int val )
+{
+    int n1 = pin;
+    int i = 0;
+    if( pin >= 32 ) { n1 -= 32; i = 1; }
+    uint32_t pinMask = 1 << n1;
+
+    uint32_t* pcpuInt = &gpioS->gpio_pcpu_int[i];
+    uint32_t* acpuInt = &gpioS->gpio_acpu_int[i];
+    uint32_t* gpioIn  = &gpioS->gpio_in[i];
+
+    int oldval = *gpioIn & pinMask;
+    *gpioIn &= ~pinMask;
+    *gpioIn |= val;
+
+    uint32_t gpioPin = gpioS->gpio_pin[pin];
+    int int_type = (gpioPin >> 7) & 7;
+
+    bool irq = 0;
+    switch( int_type )
+    {
+    case 1: irq = (val >  oldval); break; //rising edge trigger
+    case 2: irq = (val <  oldval); break; //falling edge trigger
+    case 3: irq = (val != oldval); break; //any edge trigger
+    case 4: irq = (val == 0);      break; //low level trigger
+    case 5: irq = (val == 1);      break; //high level trigger
+    }
+    if( !irq ) return;                    // RETURN, no irq
+
+    qemu_set_irq( gpioS->irq, 1);
+
+    if( gpioPin & (1 << 15) ) *pcpuInt |= pinMask; // pro cpu int enable // says bit 16 in the ref manual, is that wrong?
+    if( gpioPin & (1 << 13) ) *acpuInt |= pinMask; // app cpu int enable
+}
+
+static void readInput( Esp32GpioState *gpioS, int n )
+{
+    uint64_t qemuTime = getQemu_ps();
+    if( !waitEvent() ) return;
+
+    m_arena->nextEvent = qemuTime;
+
+    m_arena->readInput = true;
+    while( m_arena->readInput ) // Wait for read completed
+    {
+        m_timeout += 1;
+        if( m_timeout > 5e9 ) return; // Exit if timed out
+    }
+    uint64_t changedMask = m_arena->maskInput;
+//printf("Input      %lu\n", changedMask ); fflush( stdout );
+    if( changedMask == 0 ) return;
+
+    int start = n ? 32 : 0;
+    int end   = n ? 40 : 32;
+    for( int pin=start; pin<end; ++pin )
+    {
+        uint64_t PinMask = 1LL<<pin;
+        if( changedMask & PinMask )         // Pin changed
+        {
+            uint64_t state = (m_arena->nextInput & PinMask) >> start;
+            inputChanged( gpioS, pin, state );
+        }
+    }
+}
 
 static uint64_t esp32_gpio_read( void *opaque, hwaddr addr, unsigned int size )
 {
@@ -32,11 +99,11 @@ static uint64_t esp32_gpio_read( void *opaque, hwaddr addr, unsigned int size )
         case 0x20: r = gpioS->gpio_enable; break; //GPIO_ENABLE_REG
         case 0x38: r = gpioS->strap_mode;  break; //A_GPIO_STRAP:
         case 0x3C:                                //GPIO_IN_REG
-            qemu_set_irq( gpioS->read_irq, -1 );  // Read pins
+            readInput( gpioS, 0 );   // Read pins
             r = gpioS->gpio_in[0];
             break;
         case 0x40:                                //GPIO_IN1_REG
-            qemu_set_irq( gpioS->read_irq, -1 );  //Read pins
+            readInput( gpioS, 1 );   // Read pins
             r = gpioS->gpio_in[1];
             break;
         case 0x44: r = gpioS->gpio_status[0];   break; //GPIO_STATUS_REG
@@ -54,43 +121,7 @@ static uint64_t esp32_gpio_read( void *opaque, hwaddr addr, unsigned int size )
     return r;
 }
 
-static void inputChanged( void *opaque, int n, int val )
-{
-    Esp32GpioState *gpioS = ESP32_GPIO( opaque );
-
-    int n1 = n;
-    int i = 0;
-    if( n >= 32 ) { n1 -= 32; i = 1; }
-
-    uint32_t* pcpuInt = &gpioS->gpio_pcpu_int[i];
-    uint32_t* acpuInt = &gpioS->gpio_acpu_int[i];
-    uint32_t* gpioIn  = &gpioS->gpio_in[i];
-
-    int oldval = (*gpioIn >> n1) & 1;
-    *gpioIn &= ~(1 << n1);
-    *gpioIn |= (val << n1);
-
-    uint32_t gpioPin = gpioS->gpio_pin[n];
-    int int_type = (gpioPin >> 7) & 7;
-
-    bool irq = 0;
-    switch( int_type )
-    {
-    case 1: irq = (val >  oldval); break; //rising edge trigger
-    case 2: irq = (val <  oldval); break; //falling edge trigger
-    case 3: irq = (val != oldval); break; //any edge trigger
-    case 4: irq = (val == 0);      break; //low level trigger
-    case 5: irq = (val == 1);      break; //high level trigger
-    }
-    if( !irq ) return;                    // RETURN, no irq
-
-    qemu_set_irq( gpioS->irq, 1);
-
-    if( gpioPin & (1 << 15) ) *pcpuInt |= (1 << n1); // pro cpu int enable // says bit 16 in the ref manual, is that wrong?
-    if( gpioPin & (1 << 13) ) *acpuInt |= (1 << n1); // app cpu int enable
-}
-
-static void clearStatus( Esp32GpioState* gpioS, int n, uint64_t value )
+static void clearStatus( Esp32GpioState* gpioS, int n, uint64_t value ) // GPIO_STATUSx_W1TC_REG
 {
     int start = n ? 32 : 0;
     int end   = n ? 40 : 32;
@@ -112,6 +143,44 @@ static void clearStatus( Esp32GpioState* gpioS, int n, uint64_t value )
     gpioS->gpio_pcpu_int[n] &= ~value;
     gpioS->gpio_acpu_int[n] &= ~value;
     qemu_set_irq( gpioS->irq, 0 );
+}
+
+static void outChanged( int pin, int state )
+{
+    uint64_t qemuTime = getQemu_ps();
+    if( !waitEvent() ) return;
+
+    uint64_t newState = m_arena->nextState;
+    newState &= ~(1<<pin);
+    newState |= state;
+
+    //printf("gpioChanged %i %i %lu %lu\n", pin, state, newState, qemuTime ); fflush( stdout );
+
+    m_arena->nextState = newState;
+    m_arena->nextEvent = qemuTime;
+}
+
+static void dirChanged( int pin, int dir )
+{
+    uint64_t qemuTime = getQemu_ps();
+    if( !waitEvent() ) return;
+
+    uint64_t newDirec = m_arena->nextDirec;
+    newDirec &= ~(1<<pin);
+    newDirec |= dir;
+
+    m_arena->nextDirec = newDirec;
+    m_arena->nextEvent = qemuTime;
+}
+
+static void matrixChanged( int out, int func, int value )
+{
+    int pin  = value & 0x3F;
+
+    if( out ) printf("matrix Out %i %i\n", pin, func );
+    else      printf("matrix In  %i %i\n", pin, func );
+
+    fflush( stdout );
 }
 
 static void esp32_gpio_write( void *opaque, hwaddr addr, uint64_t value, unsigned int size )
@@ -142,40 +211,34 @@ static void esp32_gpio_write( void *opaque, hwaddr addr, uint64_t value, unsigne
         gpioS->gpio_pin[(addr - 0x88)/4] = value;
     }
     else if( addr < 0x530) {                               //GPIO_FUNCY_IN_SEL_CFG_REG
-        int n = (addr-0x130)/4;
-        gpioS->gpio_in_sel[n] = value;
-        qemu_set_irq( gpioS->conf_irq, (0x1000 | n) ); //report in sel cfg change
+        int func = (addr-0x130)/4;
+        gpioS->gpio_in_sel[func] = value;
+        matrixChanged( 0, func, value );
     }
     else if( addr < 0x5d0) {                               //GPIO_FUNCX_OUT_SEL_CFG_REG
-        int n = (addr-0x530)/4;
-        gpioS->gpio_out_sel[n] = value;
-        qemu_set_irq( gpioS->conf_irq, (0x2000 | n) ); //report out sel cfg change
+        int func = (addr-0x530)/4;
+        gpioS->gpio_out_sel[func] = value;
+        matrixChanged( 1, func, value );
     }
-    //printf("out 0x%04X in 0x%04X enable 0x%04X \n",gpioS->gpio_out, gpioS->gpio_in, gpioS->gpio_enable);
+
+    uint32_t outDiff = gpioS->gpio_out ^ oldOut;
+    if( outDiff )
+    {
+        for( int i=0; i<32; i++ )
+        {
+            uint32_t bitMask    = 1 << i;
+            if( outDiff & bitMask ) outChanged( i, gpioS->gpio_out & bitMask );
+        }
+    }
 
     uint32_t enableDiff = gpioS->gpio_enable ^ oldEnable;
-    uint32_t outDiff    = gpioS->gpio_out    ^ oldOut;
-    uint32_t changed    = outDiff | enableDiff;
-
-    if( !changed ) return;                       // RETURN, no pin changed
-
-    for( int i=0; i<32; i++ )
+    if( enableDiff )
     {
-        uint32_t bitMask    = 1 << i;
-        uint32_t enableMask = gpioS->gpio_enable & bitMask;
-        uint32_t bitChanged = changed & bitMask;
-
-        if( bitChanged && enableMask )
+        for( int i=0; i<32; i++ )
         {
-            uint32_t outMask = gpioS->gpio_out & bitMask;
-
-            qemu_set_irq( gpioS->out_irq[i], outMask >> i );
-
-            gpioS->gpio_in[0] &= ~bitMask;
-            gpioS->gpio_in[0] |=  outMask;
+            uint32_t bitMask    = 1 << i;
+            if( enableDiff & bitMask) dirChanged( i, gpioS->gpio_enable & bitMask );
         }
-        if( enableDiff & bitMask )
-            qemu_set_irq( gpioS->dir_irq[i], enableMask >> i );
     }
 }
 
@@ -206,14 +269,8 @@ static void esp32_gpio_init( Object *obj )
     sysbus_init_irq( sbd, &gpioS->irq );
 
     qdev_init_gpio_out_named( DEVICE(gpioS), &gpioS->irq     , SYSBUS_DEVICE_GPIO_IRQ, 1 );
-    qdev_init_gpio_out_named( DEVICE(gpioS),  gpioS->out_irq , ESP32_OUT_IRQ, 32 );
-    qdev_init_gpio_out_named( DEVICE(gpioS),  gpioS->dir_irq , ESP32_DIR_IRQ, 32 );
-    qdev_init_gpio_out_named( DEVICE(gpioS), &gpioS->read_irq, ESP32_READ_IRQ, 1 );
-    qdev_init_gpio_out_named( DEVICE(gpioS), &gpioS->conf_irq, ESP32_CONF_IRQ, 1 );
 
-    qdev_init_gpio_in_named( DEVICE(gpioS), inputChanged, ESP32_IN_IRQ, 40 );
-
-    gpioS->gpio_in[0]  = 0x1;
+    gpioS->gpio_in[0] = 0x1;
     gpioS->gpio_in[1] = 0x8;
 }
 
