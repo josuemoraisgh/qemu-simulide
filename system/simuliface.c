@@ -33,18 +33,17 @@ uint64_t getQemu_ps(void)
 {
     uint64_t qemuTime = qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL ); // ns
     qemuTime *= 1000;
-    //printf("Qemu_ps %lu ", qemuTime);
     return qemuTime-m_resetEvent;
 }
 
 bool waitEvent(void)
 {
-    while( m_arena->nextEvent )  // An event is pending, Wait for QemuDevice::runEvent()
+    while( m_arena->time )  // An event is pending, Wait for QemuDevice::runEvent()
     {
         m_timeout += 1;
         if( m_timeout > 1e9 ) break; // Terminate process if timed out
     }
-    if( !m_arena->qemuRun ) return false;// Simulation stopped
+    if( !m_arena->state ) return false;// Simulation stopped
 
     return true;
 }
@@ -55,11 +54,9 @@ static void user_timeout_cb( void* opaque )
     int64_t now = qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL );
     timer_mod_ns( qtimer, now + m_ClkPeriod );
 
-    //if( !m_arena->qemuRun )
-
     if( !waitEvent() ) return;
 
-    m_arena->nextEvent = getQemu_ps(); // ps
+    m_arena->time = getQemu_ps(); // ps
 }
 
 int simuMain( int argc, char** argv )
@@ -123,7 +120,7 @@ int simuMain( int argc, char** argv )
     m_resetEvent = qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL );
     timer_mod_ns( qtimer, m_resetEvent + m_ClkPeriod );
 
-    m_arena->qemuRun = true;  // QemuDevice::stamp() unblocked here
+    m_arena->state = 1;  // QemuDevice::stamp() unblocked here
 
     usleep( 1*1000 );   // Let Simulation fully start running
 
@@ -132,7 +129,7 @@ int simuMain( int argc, char** argv )
 
     munmap( arena, shMemSize ); // Un-map shared memory
 
-    m_arena->qemuRun = false;
+    m_arena->state = 0;
 
     printf("QemuDevice: process finished\n");
 

@@ -77,8 +77,17 @@ static uint64_t esp32_iomux_read( void *opaque, hwaddr addr, unsigned int size )
     return 0;
 }
 
-static void iomuxChanged( int pin, int value )
+
+static void esp32_iomux_write( void *opaque, hwaddr addr, uint64_t value, unsigned int size )
 {
+    Esp32IomuxState *s = ESP32_IOMUX(opaque);
+
+    int i = getMuxGpio( addr );
+    if( i == -1 ) return;
+
+    if( s->muxgpios[i] == value ) return;
+    s->muxgpios[i]= value;
+
     // Sleep bits 0-6
     // PD bit 7
     // PU bit 8
@@ -91,7 +100,10 @@ static void iomuxChanged( int pin, int value )
     uint64_t qemuTime = getQemu_ps();
     if( !waitEvent() ) return;
 
-    uint64_t pinMask = 1LL<<pin;
+    m_arena->action = IOMUX;
+    m_arena->time = qemuTime;
+
+    /*uint64_t pinMask = 1LL<<pin;
 
     uint64_t oldPu = m_arena->pullUps  & pinMask;
     uint64_t oldPd = m_arena->pullDown & pinMask;
@@ -115,14 +127,14 @@ static void iomuxChanged( int pin, int value )
         m_arena->pullDown &= ~pinMask;
         m_arena->pullDown |= puld;
         m_arena->pdChanged = pin;
-    }
+    }*/
     /*if( inEn != oldIe ){
         //printf("iomuxIe %i %i %lu\n", pin, func, inEn);fflush( stdout );
         m_arena->inputEn  &= ~pinMask;
         m_arena->inputEn  |= inEn;
         m_arena->ieChanged = pin;
     }*/
-    m_arena->nextEvent = qemuTime;
+    //m_arena->time = qemuTime;
 
     /*switch( pin )
     {
@@ -171,17 +183,6 @@ static void iomuxChanged( int pin, int value )
     case 39: break;
     }*/
 
-}
-
-static void esp32_iomux_write( void *opaque, hwaddr addr, uint64_t value, unsigned int size )
-{
-    Esp32IomuxState *s = ESP32_IOMUX(opaque);
-
-    int i = getMuxGpio( addr );
-    if( i == -1 ) return;
-
-    s->muxgpios[i]= value;
-    iomuxChanged( i, value );
 }
 
 static const MemoryRegionOps iomux_ops = {

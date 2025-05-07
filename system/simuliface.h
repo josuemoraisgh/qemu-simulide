@@ -15,20 +15,23 @@
 // -------- ARENA ---------------------------------
 
 typedef struct qemuArena{
-    bool     qemuRun;
-    bool     readInput;
-    uint64_t nextInput;
-    uint64_t maskInput;
-    uint64_t nextState;
-    uint64_t nextDirec;
-    uint64_t nextEvent;
-    uint64_t pullUps;
-    uint64_t puChanged;
-    uint64_t pullDown;
-    uint64_t pdChanged;
-    uint64_t inputEn;
-    uint64_t ieChanged;
+    uint64_t time;
+    uint32_t data32;
+    uint32_t mask32;
+    uint16_t data16;
+    uint16_t mask16;
+    uint8_t  data8;
+    uint8_t  mask8;
+    uint8_t  state;
+    uint8_t  action;
 } qemuArena_t;
+
+enum actions{
+    GPIO_OUT = 1,
+    GPIO_DIR,
+    GPIO_IN,
+    IOMUX,
+};
 
 extern volatile qemuArena_t* m_arena;
 // ------------------------------------------------

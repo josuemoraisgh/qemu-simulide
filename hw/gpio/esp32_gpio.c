@@ -63,15 +63,19 @@ static void readInput( Esp32GpioState *gpioS, int n )
     uint64_t qemuTime = getQemu_ps();
     if( !waitEvent() ) return;
 
-    m_arena->nextEvent = qemuTime;
+    uint32_t* gpioIn  = &gpioS->gpio_in[n];
 
-    m_arena->readInput = true;
-    while( m_arena->readInput ) // Wait for read completed
+    m_arena->data8 = n;
+    m_arena->data32 = *gpioIn;
+    m_arena->time   = qemuTime;
+    m_arena->action = GPIO_IN;
+
+    while( m_arena->action ) // Wait for read completed
     {
         m_timeout += 1;
         if( m_timeout > 5e9 ) return; // Exit if timed out
     }
-    uint64_t changedMask = m_arena->maskInput;
+    uint32_t changedMask = m_arena->mask32;
 //printf("Input      %lu\n", changedMask ); fflush( stdout );
     if( changedMask == 0 ) return;
 
@@ -79,10 +83,10 @@ static void readInput( Esp32GpioState *gpioS, int n )
     int end   = n ? 40 : 32;
     for( int pin=start; pin<end; ++pin )
     {
-        uint64_t PinMask = 1LL<<pin;
+        uint32_t PinMask = 1<<pin;
         if( changedMask & PinMask )         // Pin changed
         {
-            uint64_t state = (m_arena->nextInput & PinMask) >> start;
+            uint64_t state = (m_arena->data32 & PinMask) >> start;
             inputChanged( gpioS, pin, state );
         }
     }
@@ -145,32 +149,26 @@ static void clearStatus( Esp32GpioState* gpioS, int n, uint64_t value ) // GPIO_
     qemu_set_irq( gpioS->irq, 0 );
 }
 
-static void outChanged( int pin, int state )
+static void outChanged( uint32_t state )
 {
     uint64_t qemuTime = getQemu_ps();
     if( !waitEvent() ) return;
-
-    uint64_t newState = m_arena->nextState;
-    newState &= ~(1<<pin);
-    newState |= state;
 
     //printf("gpioChanged %i %i %lu %lu\n", pin, state, newState, qemuTime ); fflush( stdout );
 
-    m_arena->nextState = newState;
-    m_arena->nextEvent = qemuTime;
+    m_arena->action = GPIO_OUT;
+    m_arena->data32 = state;
+    m_arena->time = qemuTime;
 }
 
-static void dirChanged( int pin, int dir )
+static void dirChanged( uint32_t dir )
 {
     uint64_t qemuTime = getQemu_ps();
     if( !waitEvent() ) return;
 
-    uint64_t newDirec = m_arena->nextDirec;
-    newDirec &= ~(1<<pin);
-    newDirec |= dir;
-
-    m_arena->nextDirec = newDirec;
-    m_arena->nextEvent = qemuTime;
+    m_arena->action = GPIO_DIR;
+    m_arena->data32 = dir;
+    m_arena->time = qemuTime;
 }
 
 static void matrixChanged( int out, int func, int value )
@@ -187,10 +185,11 @@ static void esp32_gpio_write( void *opaque, hwaddr addr, uint64_t value, unsigne
 {
     Esp32GpioState *gpioS = ESP32_GPIO( opaque );
 
-    uint32_t oldOut    = gpioS->gpio_out;
-    uint32_t oldEnable = gpioS->gpio_enable;
+    if( addr < 0x88 )
+    {
+        uint32_t oldOut    = gpioS->gpio_out;
+        uint32_t oldEnable = gpioS->gpio_enable;
 
-    if( addr < 0x88 ){
         switch( addr ){
         case 0x04: gpioS->gpio_out        =  value; break; // GPIO_OUT_REG
         case 0x08: gpioS->gpio_out       |=  value; break; // GPIO_OUT_W1TS_REG
@@ -206,6 +205,9 @@ static void esp32_gpio_write( void *opaque, hwaddr addr, uint64_t value, unsigne
         case 0x54: gpioS->gpio_status[1] |=  value; break; // GPIO_STATUS1_W1TS_REG
         case 0x58: clearStatus( gpioS, 1, value );  break; // GPIO_STATUS1_W1TC_REG
         }
+        if( gpioS->gpio_out ^ oldOut ) outChanged( gpioS->gpio_out );
+
+        if( gpioS->gpio_enable ^ oldEnable ) dirChanged( gpioS->gpio_enable );
     }
     else if( addr < 0x130) {                               //GPIO_PINXX_REG
         gpioS->gpio_pin[(addr - 0x88)/4] = value;
@@ -219,26 +221,6 @@ static void esp32_gpio_write( void *opaque, hwaddr addr, uint64_t value, unsigne
         int func = (addr-0x530)/4;
         gpioS->gpio_out_sel[func] = value;
         matrixChanged( 1, func, value );
-    }
-
-    uint32_t outDiff = gpioS->gpio_out ^ oldOut;
-    if( outDiff )
-    {
-        for( int i=0; i<32; i++ )
-        {
-            uint32_t bitMask    = 1 << i;
-            if( outDiff & bitMask ) outChanged( i, gpioS->gpio_out & bitMask );
-        }
-    }
-
-    uint32_t enableDiff = gpioS->gpio_enable ^ oldEnable;
-    if( enableDiff )
-    {
-        for( int i=0; i<32; i++ )
-        {
-            uint32_t bitMask    = 1 << i;
-            if( enableDiff & bitMask) dirChanged( i, gpioS->gpio_enable & bitMask );
-        }
     }
 }
 
