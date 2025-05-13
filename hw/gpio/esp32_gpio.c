@@ -141,6 +141,7 @@ static void clearStatus( Esp32GpioState* gpioS, int n, uint64_t value ) // GPIO_
             if( (int_type == 4 && !gpioMask)
              || (int_type == 5 &&  gpioMask) )
                 return;                        // RETURN, no clear, no irq
+                //      ????????????????????
         }
     }
     gpioS->gpio_status[n]   &= ~value;
@@ -173,12 +174,20 @@ static void dirChanged( uint32_t dir )
 
 static void matrixChanged( int out, int func, int value )
 {
-    int pin  = value & 0x3F;
+    //int pin  = value & 0x3F;
 
-    if( out ) printf("matrix Out %i %i\n", pin, func );
-    else      printf("matrix In  %i %i\n", pin, func );
+    //if( out ) printf("matrix Out %i %i\n", pin, func );
+    //else      printf("matrix In  %i %i\n", pin, func );
 
-    fflush( stdout );
+    //fflush( stdout );
+
+    uint64_t qemuTime = getQemu_ps();
+    if( !waitEvent() ) return;
+
+    m_arena->action = out ? MATRIX_OUT : MATRIX_IN;
+    m_arena->data32 = value;
+    m_arena->data8  = func;
+    m_arena->time = qemuTime;
 }
 
 static void esp32_gpio_write( void *opaque, hwaddr addr, uint64_t value, unsigned int size )

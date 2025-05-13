@@ -17,6 +17,18 @@
 #include "qapi/visitor.h"
 #include "migration/vmstate.h"
 
+#include "../system/simuliface.h"
+
+enum i2c_action {
+    I2C_START_READ=0,
+    I2C_START_WRITE,
+    I2C_START_WRITE_ASYNC,
+    I2C_STOP,
+    I2C_NOACK, /* Masker NACKed a receive byte.  */
+    I2C_WRITE,
+    I2C_READ,
+    I2C_MATCH,
+};
 
 static int i2c_id = 0;
 
@@ -24,7 +36,7 @@ typedef struct I2cIface {
   /*< private >*/
   I2CSlave i2c;
   /*< public >*/
- // uint8_t device_addr;
+  uint8_t device_addr;
   uint8_t id;
 } I2cIface;
 
@@ -36,24 +48,59 @@ static void i2c_iface_reset( DeviceState *dev ) {
 }
 
 static uint8_t i2c_iface_rx( I2CSlave *i2c ) {
-  //I2cIface *s = I2C_IFACE(i2c);
-  //  read i2c
-  return 0; /// FIXME SIMULIDE i2c_iface_event(s->id, s->device_addr, I2C_NACK+2);
+    //I2cIface *s = I2C_IFACE(i2c);
+    uint64_t qemuTime = getQemu_ps();
+    if( !waitEvent() ) return 0;
+    //printf("i2c_rx %lu\n", qemuTime/1000000 );fflush( stdout );
+
+    m_arena->time   = qemuTime;
+    return 0; /// FIXME SIMULIDE i2c_iface_event(s->id, s->device_addr, I2C_NACK+2);
 }
 
 static int i2c_iface_tx( I2CSlave *i2c, uint8_t data )
 {
-    //I2cIface *s = I2C_IFACE(i2c);
-    printf("i2c_tx %i\n", data );fflush( stdout );
-    //  write i2c
+    I2cIface* i2cI = I2C_IFACE(i2c);
+
+    uint64_t qemuTime = getQemu_ps();
+    //printf("i2c_tx %i %lu\n", data, qemuTime/1000000 );fflush( stdout );
+    if( !waitEvent() ) return 0;
+
+    m_arena->action = I2C;
+    m_arena->data32 = I2C_WRITE;
+    m_arena->data16 = i2cI->id;
+    m_arena->data8  = data;
+    m_arena->time   = qemuTime;
+
+    /*while( m_arena->action )
+    {
+        m_timeout += 1;
+        if( m_timeout > 5e9 ) return 1; // Exit if timed out
+    }*/
+
     return 0; /// FIXME SIMULIDE i2c_iface_event(s->id, s->device_addr, (data<<8)|(I2C_NACK+1));
 }
 
-static int i2c_iface_ev( I2CSlave *i2c, enum i2c_event event ) {
-  //I2cIface *s = I2C_IFACE(i2c);
-    printf("i2c_ev %i\n", event );fflush( stdout );
-  // i2c event
-  return 0; /// FIXME SIMULIDE i2c_iface_event(s->id, s->device_addr, event);
+static int i2c_iface_ev( I2CSlave *i2c, enum i2c_event event )
+{
+    I2cIface* i2cI = I2C_IFACE(i2c);
+
+    uint64_t qemuTime = getQemu_ps();
+    //printf("i2c_ev %i %lu\n", event, qemuTime/1000000 );fflush( stdout );
+    if( !waitEvent() ) return 0;
+
+    m_arena->action = I2C;
+    m_arena->data32 = event;
+    m_arena->data16 = i2cI->id;
+    m_arena->time   = qemuTime;
+
+    /*while( m_arena->action )
+    {
+        m_timeout += 1;
+        if( m_timeout > 5e9 ) return 1; // Exit if timed out
+    }*/
+    //m_arena->time = qemuTime + 120*1000*1000;
+
+    return 0; /// FIXME SIMULIDE i2c_iface_event(s->id, s->device_addr, event);
 }
 
 /*
@@ -62,15 +109,30 @@ static int i2c_iface_ev( I2CSlave *i2c, enum i2c_event event ) {
 static bool i2c_iface_match( I2CSlave *candidate, uint8_t address,
                                 bool broadcast, I2CNodeList *current_devs )
 {
-  //I2cIface *s = I2C_IFACE( candidate );
+    I2cIface* i2cI = I2C_IFACE( candidate );
+    //printf("i2c_match %i\n", address );fflush( stdout );
 
-  printf("i2c_match %i\n", address );fflush( stdout );
-  // Always return true
-  //s->device_addr = address;
-  I2CNode *node = g_malloc(sizeof(struct I2CNode));
-  node->elt = candidate;
-  QLIST_INSERT_HEAD( current_devs, node, next );
-  return true;
+    uint64_t qemuTime = getQemu_ps();
+    if( !waitEvent() ) return false;
+
+    m_arena->action = I2C;
+    m_arena->data32 = I2C_MATCH;
+    m_arena->data16 = i2cI->id;
+    m_arena->data8  = address;
+    m_arena->time   = qemuTime;
+
+    /*while( m_arena->action )
+    {
+        m_timeout += 1;
+        if( m_timeout > 5e9 ) return false; // Exit if timed out
+    }*/
+
+    // Always return true
+    i2cI->device_addr = address;
+    I2CNode *node = g_malloc(sizeof(struct I2CNode));
+    node->elt = candidate;
+    QLIST_INSERT_HEAD( current_devs, node, next );
+    return true;
 }
 
 static void i2c_iface_realize( DeviceState *dev, Error **errp )

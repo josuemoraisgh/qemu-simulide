@@ -82,107 +82,19 @@ static void esp32_iomux_write( void *opaque, hwaddr addr, uint64_t value, unsign
 {
     Esp32IomuxState *s = ESP32_IOMUX(opaque);
 
-    int i = getMuxGpio( addr );
-    if( i == -1 ) return;
+    int pin = getMuxGpio( addr );
+    if( pin == -1 ) return;
 
-    if( s->muxgpios[i] == value ) return;
-    s->muxgpios[i]= value;
-
-    // Sleep bits 0-6
-    // PD bit 7
-    // PU bit 8
-    // IE bit 9
-    // Drive bits 10-11
-    // function bits 12-14
-
-    //int func = (value>> 12) & 7;
+    if( s->muxgpios[pin] == value ) return;
+    s->muxgpios[pin]= value;
 
     uint64_t qemuTime = getQemu_ps();
     if( !waitEvent() ) return;
 
     m_arena->action = IOMUX;
+    m_arena->data32 = value;
+    m_arena->data8  = pin;
     m_arena->time = qemuTime;
-
-    /*uint64_t pinMask = 1LL<<pin;
-
-    uint64_t oldPu = m_arena->pullUps  & pinMask;
-    uint64_t oldPd = m_arena->pullDown & pinMask;
-    //uint64_t oldIe = m_arena->inputEn  & pinMask;
-
-    uint64_t puld = (value >> 7) & 1;
-    uint64_t pulu = (value >> 8) & 1;
-    uint64_t inEn = (value >> 9) & 1;
-
-    pulu <<= pin;
-    puld <<= pin;
-    inEn <<= pin;
-
-    if( pulu != oldPu ){
-        //printf("iomuxPu %i %i %lu\n", pin, func, pulu);fflush( stdout );
-        m_arena->pullUps  &= ~pinMask;
-        m_arena->pullUps  |= pulu;
-        m_arena->puChanged = pin;
-    }
-    if( puld != oldPd ){
-        m_arena->pullDown &= ~pinMask;
-        m_arena->pullDown |= puld;
-        m_arena->pdChanged = pin;
-    }*/
-    /*if( inEn != oldIe ){
-        //printf("iomuxIe %i %i %lu\n", pin, func, inEn);fflush( stdout );
-        m_arena->inputEn  &= ~pinMask;
-        m_arena->inputEn  |= inEn;
-        m_arena->ieChanged = pin;
-    }*/
-    //m_arena->time = qemuTime;
-
-    /*switch( pin )
-    {
-    case 0: break;
-    case 1: break;
-    case 2: break;
-    case 3: break;
-    case 4: break;
-    case 5: break;
-    case 6: break;
-    case 7: break;
-    case 8: break;
-    case 9: break;
-    case 10: break;
-    case 11: break;
-    case 12: break;
-    case 13: break;
-    case 14: break;
-    case 15: break;
-    case 16: break;
-    case 17: break;
-    case 18: break;
-    case 19: break;
-    case 20: break;
-    case 21:
-        break;
-    case 22:
-        break;
-    case 23: break;
-    case 24: break;
-    case 25: break;
-    case 26: break;
-    case 27: break;
-    case 28: break;
-    case 29: break;
-    case 30: break;
-    case 31: break;
-    case 32: break;
-    case 33: break;
-    case 34: break;
-    case 35: break;
-    case 35: break;
-    case 36: break;
-    case 37: break;
-    case 38: break;
-    case 39: break;
-    }*/
-
 }
 
 static const MemoryRegionOps iomux_ops = {

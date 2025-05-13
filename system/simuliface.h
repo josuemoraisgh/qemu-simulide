@@ -31,6 +31,9 @@ enum actions{
     GPIO_DIR,
     GPIO_IN,
     IOMUX,
+    MATRIX_IN,
+    MATRIX_OUT,
+    I2C,
 };
 
 extern volatile qemuArena_t* m_arena;
