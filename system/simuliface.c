@@ -1,11 +1,24 @@
+/***************************************************************************
+ *   Copyright (C) 2025 by Santiago González                               *
+ *                                                                         *
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 or
+ * (at your option) any later version.
+ */
 
-#include <sys/mman.h>
-#include <sys/shm.h>
 #include <sys/stat.h>
 #include <stdlib.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdio.h>
+
+#ifdef __linux__
+#include <sys/mman.h>
+#include <sys/shm.h>
+#elif defined(_WIN32)
+#include <windows.h>
+#endif
 
 #include "simuliface.h"
 
@@ -43,6 +56,7 @@ bool waitEvent(void)
         m_timeout += 1;
         if( m_timeout > 1e9 ) break; // Terminate process if timed out
     }
+    m_timeout = 0;
     if( !m_arena->state ) return false;// Simulation stopped
 
     return true;
@@ -55,7 +69,7 @@ static void user_timeout_cb( void* opaque )
     timer_mod_ns( qtimer, now + m_ClkPeriod );
 
     if( !waitEvent() ) return;
-
+    //printf("timeout_cb \n" ); fflush( stdout );
     m_arena->time = getQemu_ps(); // ps
 }
 
@@ -74,17 +88,27 @@ int simuMain( int argc, char** argv )
         return 1;
     }
 
-    const int shMemId = shm_open( shMemKey, O_RDWR, 0666 ); // Open the shared memory object
+    void* arena = NULL;
 
+#ifdef __linux__
+    int shMemId = shm_open( shMemKey, O_RDWR, 0666 ); // Open the shared memory object
     if( shMemId == -1 )
     {
         printf("Error opening arena: %s\n", shMemKey );
         return 1;
     }
     else printf("arena ok: %s\n", shMemKey );
+    arena = mmap( 0, shMemSize, PROT_READ | PROT_WRITE, MAP_SHARED, shMemId, 0);
+#elif defined(_WIN32)
+    HANDLE hMapFile = OpenFileMapping( FILE_MAP_ALL_ACCESS,  FALSE, shMemKey );
 
-    // Map shared memory
-    void* arena = mmap( 0, shMemSize, PROT_READ | PROT_WRITE, MAP_SHARED, shMemId, 0);
+    if (hMapFile == NULL) {
+        std::cerr << "Could not create file mapping object: " << GetLastError() << std::endl;
+        return 1;
+    }
+    arena = MapViewOfFile( hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, shMemSize );
+#endif
+
     if( !arena )
     {
         printf("Error mapping arena\n");

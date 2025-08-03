@@ -75,6 +75,7 @@ static void readInput( Esp32GpioState *gpioS, int n )
         m_timeout += 1;
         if( m_timeout > 5e9 ) return; // Exit if timed out
     }
+    m_timeout = 0;
     uint32_t changedMask = m_arena->mask32;
 //printf("Input      %lu\n", changedMask ); fflush( stdout );
     if( changedMask == 0 ) return;
@@ -166,7 +167,7 @@ static void dirChanged( uint32_t dir )
 {
     uint64_t qemuTime = getQemu_ps();
     if( !waitEvent() ) return;
-
+//printf("dirChanged %i %lu\n", dir, qemuTime ); fflush( stdout );
     m_arena->action = GPIO_DIR;
     m_arena->data32 = dir;
     m_arena->time = qemuTime;

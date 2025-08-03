@@ -1,8 +1,6 @@
-/*
- * PICSimLab I2C  Emulation
- * 
- *  
- * Luis Claudio Gamboa Lopes 2022 lcgamboa@yahoo.com
+/***************************************************************************
+ *   Copyright (C) 2025 by Santiago González                               *
+ *                                                                         *
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 or
@@ -33,9 +31,7 @@ enum i2c_action {
 static int i2c_id = 0;
 
 typedef struct I2cIface {
-  /*< private >*/
   I2CSlave i2c;
-  /*< public >*/
   uint8_t device_addr;
   uint8_t id;
 } I2cIface;
@@ -54,7 +50,7 @@ static uint8_t i2c_iface_rx( I2CSlave *i2c ) {
     //printf("i2c_rx %lu\n", qemuTime/1000000 );fflush( stdout );
 
     m_arena->time   = qemuTime;
-    return 0; /// FIXME SIMULIDE i2c_iface_event(s->id, s->device_addr, I2C_NACK+2);
+    return 0;
 }
 
 static int i2c_iface_tx( I2CSlave *i2c, uint8_t data )
@@ -77,7 +73,7 @@ static int i2c_iface_tx( I2CSlave *i2c, uint8_t data )
         if( m_timeout > 5e9 ) return 1; // Exit if timed out
     }*/
 
-    return 0; /// FIXME SIMULIDE i2c_iface_event(s->id, s->device_addr, (data<<8)|(I2C_NACK+1));
+    return 0;
 }
 
 static int i2c_iface_ev( I2CSlave *i2c, enum i2c_event event )
@@ -100,7 +96,7 @@ static int i2c_iface_ev( I2CSlave *i2c, enum i2c_event event )
     }*/
     //m_arena->time = qemuTime + 120*1000*1000;
 
-    return 0; /// FIXME SIMULIDE i2c_iface_event(s->id, s->device_addr, event);
+    return 0;
 }
 
 /*
