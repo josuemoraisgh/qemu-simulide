@@ -16,8 +16,8 @@
 #ifdef __linux__
 #include <sys/mman.h>
 #include <sys/shm.h>
-#elif defined(_WIN32)
-#include <windows.h>
+//#elif defined(_WIN32)
+//#include <windows.h>
 #endif
 
 #include "simuliface.h"
@@ -102,8 +102,8 @@ int simuMain( int argc, char** argv )
 #elif defined(_WIN32)
     HANDLE hMapFile = OpenFileMapping( FILE_MAP_ALL_ACCESS,  FALSE, shMemKey );
 
-    if (hMapFile == NULL) {
-        std::cerr << "Could not create file mapping object: " << GetLastError() << std::endl;
+    if( hMapFile == NULL ) {
+        //std::cerr << "Could not create file mapping object: " << GetLastError() << std::endl;
         return 1;
     }
     arena = MapViewOfFile( hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, shMemSize );
@@ -151,8 +151,12 @@ int simuMain( int argc, char** argv )
     int status = qemu_main_loop();
     qemu_cleanup(status);
 
+#ifdef __linux__
     munmap( arena, shMemSize ); // Un-map shared memory
-
+#elif defined(_WIN32)
+    UnmapViewOfFile( arena );
+    CloseHandle( hMapFile );
+#endif
     m_arena->state = 0;
 
     printf("QemuDevice: process finished\n");
