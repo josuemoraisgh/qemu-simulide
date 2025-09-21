@@ -26,7 +26,9 @@
 #include "qapi/error.h"
 #include "exec/address-spaces.h"
 #include "sysemu/sysemu.h"
+#include "hw/boards.h"
 #include "hw/or-irq.h"
+#include "hw/arm/boot.h"
 #include "hw/arm/stm32l4x5_soc.h"
 #include "hw/char/stm32l4x5_usart.h"
 #include "hw/gpio/stm32l4x5_gpio.h"
@@ -492,3 +494,56 @@ static const TypeInfo stm32l4x5_soc_types[] = {
 };
 
 DEFINE_TYPES(stm32l4x5_soc_types)
+
+
+// Machine stuff -----------------------------------------------
+//--------------------------------------------------------------
+
+#define TYPE_STM32_L4X5XG MACHINE_TYPE_NAME("STM32-L4X5XG")
+OBJECT_DECLARE_SIMPLE_TYPE( stm32l4x5xgMachineState, STM32_L4X5XG )
+
+typedef struct stm32l4x5xgMachineState {
+    MachineState parent_obj;
+
+    Stm32l4x5SocState soc;
+
+} stm32l4x5xgMachineState;
+
+static void stm32l4x5xg_init( MachineState *machine )
+{
+    stm32l4x5xgMachineState *s = STM32_L4X5XG(machine);
+    const Stm32l4x5SocClass *sc;
+
+    object_initialize_child( OBJECT(machine), "soc", &s->soc, TYPE_STM32L4X5XG_SOC );
+    sysbus_realize( SYS_BUS_DEVICE(&s->soc), &error_fatal );
+
+    sc = STM32L4X5_SOC_GET_CLASS( &s->soc );
+    armv7m_load_kernel( ARM_CPU(first_cpu ), machine->kernel_filename, 0, sc->flash_size);
+}
+
+static void stm32l4x5xg_machine_init( ObjectClass *oc, void *data )
+{
+    MachineClass *mc = MACHINE_CLASS(oc);
+    static const char *machine_valid_cpu_types[] = {
+        ARM_CPU_TYPE_NAME("cortex-m4"),
+        NULL
+    };
+    mc->desc = "STM32L4X5 MCU (Cortex-M4)";
+    mc->init = stm32l4x5xg_init;
+    mc->valid_cpu_types = machine_valid_cpu_types;
+
+    /* SRAM pre-allocated as part of the SoC instantiation */
+    mc->default_ram_size = 0;
+}
+
+/* Initialize machine type */
+static const TypeInfo stm32l4x5xg_machine_type[] = {
+    {
+        .name           = TYPE_STM32_L4X5XG,
+        .parent         = TYPE_MACHINE,
+        .instance_size  = sizeof( stm32l4x5xgMachineState ),
+        .class_init     = stm32l4x5xg_machine_init,
+    }
+};
+
+DEFINE_TYPES( stm32l4x5xg_machine_type )

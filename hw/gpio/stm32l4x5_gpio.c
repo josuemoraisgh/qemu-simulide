@@ -28,6 +28,8 @@
 #include "migration/vmstate.h"
 #include "trace.h"
 
+#include "../system/simuliface.h"
+
 #define GPIO_MODER 0x00
 #define GPIO_OTYPER 0x04
 #define GPIO_OSPEEDR 0x08
@@ -258,7 +260,7 @@ static void stm32l4x5_gpio_write(void *opaque, hwaddr addr,
                                  uint64_t val64, unsigned int size)
 {
     Stm32l4x5GpioState *s = opaque;
-
+printf("STM32 GPIO Write %lu %lu\n", addr, val64 ); fflush( stdout );
     uint32_t value = val64;
     trace_stm32l4x5_gpio_write(s->name, addr, val64);
 
@@ -293,6 +295,19 @@ static void stm32l4x5_gpio_write(void *opaque, hwaddr addr,
         return;
     case GPIO_ODR:
         s->odr = value & ~RESERVED_BITS_MASK;
+
+        /// test code ------------------------------
+        uint32_t state = s->odr;
+        uint64_t qemuTime = getQemu_ps();
+        if( !waitEvent() ) return;
+
+        printf("STM32 gpio ODR Changed %i %lu\n", state, qemuTime ); fflush( stdout );
+
+        m_arena->action = GPIO_OUT;
+        m_arena->data32 = state;
+        m_arena->time = qemuTime;
+        /// ----------------------------------------
+
         update_gpio_idr(s);
         return;
     case GPIO_BSRR: {
@@ -344,7 +359,7 @@ static uint64_t stm32l4x5_gpio_read(void *opaque, hwaddr addr,
                                     unsigned int size)
 {
     Stm32l4x5GpioState *s = opaque;
-
+printf("STM32 GPIO Read %lu\n", addr ); fflush( stdout );
     trace_stm32l4x5_gpio_read(s->name, addr);
 
     switch (addr) {

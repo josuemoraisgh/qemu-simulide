@@ -618,6 +618,7 @@ void armv7m_load_kernel(ARMCPU *cpu, const char *kernel_filename,
             error_report("Could not load kernel '%s'", kernel_filename);
             exit(1);
         }
+        printf("ARM kernel loaded: %s %li bytes\n", kernel_filename, image_size ); fflush( stdout );
     }
 
     /* CPU objects (unlike devices) are not automatically reset on system
