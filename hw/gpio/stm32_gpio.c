@@ -23,12 +23,8 @@
 #include "hw/arm/stm32.h"
 #include "hw/sysbus.h"
 #include "hw/irq.h"
-//#include "qemu/bitops.h"
 
 #include "../system/simuliface.h"
-
-
-/* DEFINITIONS*/
 
 #define GPIOx_CRL_OFFSET 0x00
 #define GPIOx_CRH_OFFSET 0x04
@@ -51,34 +47,14 @@ struct Stm32Gpio {
 
     Stm32Rcc *stm32_rcc;
 
-
     uint32_t GPIOx_CRL;
     uint32_t GPIOx_CRH;
     uint32_t GPIOx_ODR;
 
     uint16_t in;
-    //uint16_t m_direction;  // input = 0, output = 1
-    //uint16_t m_analog;     // analog = 1
-    //uint16_t m_pullup;     // pullup/down = 1
-    //uint16_t m_alternate;  // alternate function = 1
-    //uint16_t m_openDrain;  // push-pull = 0, open drain = 1
 
-    /* IRQs used to communicate with the machine implementation.
-     * There is one IRQ for each pin.  Note that for pins configured
-     * as inputs, the output IRQ state has no meaning.  Perhaps
-     * the output should be updated to match the input in this case....
-     */
-    //qemu_irq out_irq[STM32_GPIO_PIN_COUNT];
-    //qemu_irq dir_irq[STM32_GPIO_PIN_COUNT];
-
-    /* IRQs which relay input pin changes to other STM32 peripherals */
-    qemu_irq in_irq[STM32_GPIO_PIN_COUNT];
-
-    //qemu_irq sync_irq[1];
+    qemu_irq in_irq[STM32_GPIO_PIN_COUNT]; /* IRQs which relay input pin changes to other STM32 peripherals */
 };
-
-#define STM32_GPIOS_DIR "stm32_gpios_dir"
-//#define STM32_GPIOS_SYNC "stm32_gpios_sync"
 
 /* CALLBACKs */
 
@@ -98,18 +74,25 @@ static void stm32_gpio_in_trigger( void *opaque, int irq, int level )
     qemu_set_irq( s->in_irq[pin], level ); // Propagate the trigger to the input IRQs.
 }
 
-
-/* HELPER FUNCTIONS */
-
-//static uint8_t stm32_gpio_get_pin_config( Stm32Gpio *s, unsigned pin ) // Gets the four configuration bits for the pin from the CRL or CRH register.
-//{
-//    // Simplify extract logic by combining both 32 bit regiters into one 64 bit value.
-//    uint64_t cr_64 = ((uint64_t)s->GPIOx_CRH << 32) | s->GPIOx_CRL;
-//    return extract64( cr_64, pin * 4, 4 );
-//}
-
-
 /* REGISTER IMPLEMENTATION */
+
+static uint16_t readInputs( int32_t port )
+{
+    uint64_t qemuTime = getQemu_ps();
+    if( !waitEvent() ) return 0;
+
+    m_arena->data8  = port;
+    m_arena->time   = qemuTime;
+    m_arena->action = ARM_GPIO_IN;
+
+    while( m_arena->action ) // Wait for read completed
+    {
+        m_timeout += 1;
+        if( m_timeout > 5e9 ) return 0; // Exit if timed out
+    }
+    m_timeout = 0;
+    return m_arena->data16;
+}
 
 static void stm32_gpio_write_CRx( uint32_t value, uint8_t shift, uint8_t port )
 {
@@ -140,20 +123,17 @@ static uint64_t stm32_gpio_read( void *opaque, hwaddr offset, unsigned size )
 {
     Stm32Gpio *s = (Stm32Gpio *)opaque;
 
-    //assert(size == 4);
-
     switch( offset ) {
-        case GPIOx_CRL_OFFSET:  return s->GPIOx_CRL;
-        case GPIOx_CRH_OFFSET:  return s->GPIOx_CRH;
+        case GPIOx_CRL_OFFSET: return s->GPIOx_CRL;
+        case GPIOx_CRH_OFFSET: return s->GPIOx_CRH;
         case GPIOx_IDR_OFFSET:
-            //qemu_set_irq( s->sync_irq[0], -1);
-            /// TODO: wait for simulide
+            s->in = readInputs( s->periph );   // Read pins
             return s->in;
         case GPIOx_ODR_OFFSET:  return s->GPIOx_ODR;
-        case GPIOx_BSRR_OFFSET: STM32_WO_REG(offset); return 0;
-        case GPIOx_BRR_OFFSET:  STM32_WO_REG(offset); return 0;
+        case GPIOx_BSRR_OFFSET: return 0; /*STM32_WO_REG(offset);*/
+        case GPIOx_BRR_OFFSET:  return 0; /*STM32_WO_REG(offset);*/
         case GPIOx_LCKR_OFFSET: return 0; /* Locking is not yet implemented */
-        default:                STM32_BAD_REG(offset, 4/*size*/); return 0;
+        default:                return 0; //STM32_BAD_REG(offset, 4/*size*/);
     }
 }
 
@@ -161,9 +141,8 @@ static void stm32_gpio_write( void *opaque, hwaddr offset, uint64_t value, unsig
 {
     Stm32Gpio *s = (Stm32Gpio *)opaque;
 
-    assert(size == 4);
-
-    stm32_rcc_check_periph_clk( (Stm32Rcc *)s->stm32_rcc, s->periph );
+    /// Is this really needed? Maybe use an enabled flag
+    /// stm32_rcc_check_periph_clk( (Stm32Rcc *)s->stm32_rcc, s->periph );
 
     switch( offset ) {
         case GPIOx_CRL_OFFSET:
@@ -191,21 +170,18 @@ static void stm32_gpio_write( void *opaque, hwaddr offset, uint64_t value, unsig
             if( value == s->GPIOx_ODR ) break;
             s->GPIOx_ODR = value;
             stm32_gpio_write_ODR( value, s->periph );
-            }break;
+            } break;
         case GPIOx_BRR_OFFSET:{
             uint32_t reset_mask = ~value & 0x0000FFFF;
             value = s->GPIOx_ODR & reset_mask;
             if( value == s->GPIOx_ODR ) break;
             s->GPIOx_ODR = value;
             stm32_gpio_write_ODR( value, s->periph );
-            }break;
+            } break;
         case GPIOx_LCKR_OFFSET:
             /// TODO: Locking is not implemented
-            STM32_NOT_IMPL_REG( offset, size );
             break;
-        default:
-            STM32_BAD_REG( offset, size );
-            break;
+        default: break;
     }
 }
 
@@ -217,40 +193,14 @@ static const MemoryRegionOps stm32_gpio_ops = {
     .endianness = DEVICE_NATIVE_ENDIAN
 };
 
-static void stm32_gpio_reset( DeviceState *dev )
+static void stm32_gpio_reset( DeviceState *dev ) // only outputs and config are affected by the GPIO reset.
 {
-    int pin;
     Stm32Gpio *s = STM32_GPIO(dev);
 
     s->GPIOx_CRL = 0x44444444;
     s->GPIOx_CRH = 0x44444444;
     s->GPIOx_ODR = 0;
-    //s->m_direction = 0; /* input = 0, output = 1 */
-
-    //for(pin = 0; pin < STM32_GPIO_PIN_COUNT; pin++) {
-    //    qemu_irq_lower(s->out_irq[pin]);
-    //}
-
-    /* Leave input state as it is - only outputs and config are affected
-     * by the GPIO reset. */
 }
-
-
-/* PUBLIC FUNCTIONS */
-
-//uint8_t stm32_gpio_is_analog(Stm32Gpio *s, unsigned pin)
-//{
-//    return true; //m_analog & 1<<pin;
-//}
-
-//uint8_t stm32_gpio_get_config_bits(Stm32Gpio *s, unsigned pin) {
-//    return (stm32_gpio_get_pin_config(s, pin) >> 2) & 0x3;
-//}
-
-//uint8_t stm32_gpio_get_mode_bits(Stm32Gpio *s, unsigned pin) {
-//    return stm32_gpio_get_pin_config(s, pin) & 0x3;
-//}
-
 
 /* DEVICE INITIALIZATION */
 
@@ -266,13 +216,10 @@ static void stm32_gpio_init( Object *obj )
     sysbus_init_mmio(dev, &s->iomem);
 
     qdev_init_gpio_in(DEVICE(dev), stm32_gpio_in_trigger, STM32_GPIO_PIN_COUNT);
-    //qdev_init_gpio_out(DEVICE(dev), s->out_irq, STM32_GPIO_PIN_COUNT);
-    //qdev_init_gpio_out_named(DEVICE(dev), s->dir_irq, STM32_GPIOS_DIR, STM32_GPIO_PIN_COUNT);
-    //qdev_init_gpio_out_named(DEVICE(dev), s->sync_irq, STM32_GPIOS_SYNC, 1);
 
-    for(pin = 0; pin < STM32_GPIO_PIN_COUNT; pin++) {
-        sysbus_init_irq(dev, &s->in_irq[pin]);
-    }
+    for( pin=0; pin<STM32_GPIO_PIN_COUNT; pin++ )
+        sysbus_init_irq( dev, &s->in_irq[pin] );
+
     return ;
 }
 
@@ -295,10 +242,7 @@ static Property stm32_gpio_properties[] = {
 static void stm32_gpio_class_init( ObjectClass *klass, void *data )
 {
     DeviceClass *dc = DEVICE_CLASS( klass );
-    //SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS( klass );
 
-    //k->init = stm32_gpio_init;
-    //dc->reset = stm32_gpio_reset;
     device_class_set_legacy_reset( dc,stm32_gpio_reset);
     dc->realize = stm32_gpio_realize;
     //dc->props = stm32_gpio_properties;
