@@ -115,8 +115,8 @@ struct Stm32Timer {
 
 static void stm32_timer_freq(Stm32Timer *s)
 {
-    // Why do we need to multiply the frequency by 2?  This is how real hardware
-    // behaves.
+    // Why do we need to multiply the frequency by 2?
+    //This is how real hardware behaves.
     uint32_t clk_freq = 2*stm32_rcc_get_periph_freq(s->stm32_rcc, s->periph) / (s->psc + 1);
     DPRINTF
     (
@@ -227,12 +227,12 @@ static void stm32_timer_tick(void *opaque) // overflow
     Stm32Timer *s = (Stm32Timer *)opaque;
     DPRINTF("%s Alarm raised\n", stm32_periph_name(s->periph));
 
-    static uint64_t lastTime=0;
-    uint64_t qemuTime_ns = qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL ); // ns
+    //static uint64_t lastTime=0;
+    //uint64_t qemuTime_ns = qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL ); // ns
     //printf("%s overflow at %lu ns\n", stm32_periph_name(s->periph), qemuTime_ns - lastTime);
     //printf("%lu\n", qemuTime_ns - lastTime);
     //printf("%i\n", s->arr);
-    lastTime = qemuTime_ns;
+    //lastTime = qemuTime_ns;
 
     s->itr = 1;
     stm32_timer_update_UIF(s, 1);
