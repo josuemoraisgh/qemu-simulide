@@ -365,9 +365,9 @@ static void iwdg_class_init(ObjectClass *klass, void *data)
     //SysBusDeviceClass *sc = SYS_BUS_DEVICE_CLASS(klass);    
     
     //sc->init = iwdg_init;
-	//来自qemu_stm32的过时代码
-	//dc->reset = iwdg_reset;
-	device_class_set_legacy_reset( dc,iwdg_reset);
+
+    //dc->reset = iwdg_reset;
+    device_class_set_legacy_reset( dc,iwdg_reset);
     dc->vmsd = &vmstate_iwdg;
     dc->realize = stm32_iwdg_realize;
     //dc->props = iwdg_properties;

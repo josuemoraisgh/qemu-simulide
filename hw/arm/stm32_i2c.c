@@ -30,8 +30,8 @@
 #include "hw/irq.h"
 #include "qemu/log.h"
 
-#define	R_I2C_CR1      (0x00 / 4)
-#define	R_I2C_CR2      (0x04 / 4)
+#define    R_I2C_CR1      (0x00 / 4)
+#define    R_I2C_CR2      (0x04 / 4)
 #define R_I2C_OAR1     (0x08 / 4)
 #define R_I2C_OAR2     (0x0c / 4)
 #define R_I2C_DR       (0x10 / 4)
@@ -127,7 +127,8 @@ typedef struct stm32_i2c_state {
 /* Routine which updates the I2C's IRQs.  This should be called whenever
  * an interrupt-related flag is updated.
  */
-static void stm32_i2c_update_irq(stm32_i2c_state *s) {
+static void stm32_i2c_update_irq(stm32_i2c_state *s)
+{
     int new_err_irq_level = 0;
     if (s->regs[R_I2C_CR2] & R_I2C_CR2_ITERREN_BIT) {
         new_err_irq_level =  (s->regs[R_I2C_SR1]  & R_I2C_SR1_BERR_BIT)
@@ -163,8 +164,8 @@ static void stm32_i2c_update_irq(stm32_i2c_state *s) {
 }
 
 
-static void
-stm32_i2c_stop(stm32_i2c_state *s){
+static void stm32_i2c_stop(stm32_i2c_state *s)
+{
     i2c_end_transfer(s->bus);
     s->regs[R_I2C_CR1]  &= ~R_I2C_CR1_STOP_BIT;
     s->regs[R_I2C_SR1]  &= ~R_I2C_SR1_TxE_BIT;
@@ -176,8 +177,7 @@ stm32_i2c_stop(stm32_i2c_state *s){
     stm32_i2c_update_irq(s);
 }
 
-static uint64_t
-stm32_i2c_read(void *arg, hwaddr offset, unsigned size)
+static uint64_t stm32_i2c_read(void *arg, hwaddr offset, unsigned size)
 {
     stm32_i2c_state *s = arg;
     uint16_t r = UINT16_MAX;
@@ -243,8 +243,7 @@ stm32_i2c_read(void *arg, hwaddr offset, unsigned size)
 }
 
 
-static void
-stm32_i2c_write(void *arg, hwaddr offset, uint64_t data, unsigned size)
+static void stm32_i2c_write(void *arg, hwaddr offset, uint64_t data, unsigned size)
 {
 #ifdef DEBUG_STM32_i2c    
     const char *reg_name = "UNKNOWN";
@@ -379,7 +378,7 @@ static void
 stm32_i2c_class_init(ObjectClass *c, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(c);
-    //来自qemu_stm32的过时代码
+
     //dc->reset = stm32_i2c_reset;
     device_class_set_legacy_reset( dc,stm32_i2c_reset);
     device_class_set_props(dc, stm32_i2c_properties);

@@ -87,10 +87,10 @@ struct Stm32Dac {
 
     /* Register Values */
     uint32_t
-	DAC_CR,
- 	DAC_SWTRIGR,
-	DAC_DOR1,
-	DAC_DOR2,
+        DAC_CR,
+        DAC_SWTRIGR,
+        DAC_DOR1,
+        DAC_DOR2,
         DAC_DHR12R1,
         DAC_DHR12L1,
         DAC_DHR8R1,
@@ -138,8 +138,9 @@ static void stm32_dac_LFSR_update(void *opaque)
      int nor=extract32(s->LFSR_VALUE,0,1);
      int xor,i;
      /* Calculate nor between bits of LFSR */
-     for(i=1;i<12;i++)
-     nor=!(nor | extract32(s->LFSR_VALUE,i,1));
+     for( i=1; i<12; i++ )
+        nor=!(nor | extract32(s->LFSR_VALUE,i,1));
+
      /* Calculate new 11 bits of LFSR */
      xor =extract32(s->LFSR_VALUE,0,1)^
           extract32(s->LFSR_VALUE,1,1)^
@@ -147,9 +148,7 @@ static void stm32_dac_LFSR_update(void *opaque)
           extract32(s->LFSR_VALUE,6,1)^
           nor;
      /* Update LFSR_Value */
-     s->LFSR_VALUE =(s->LFSR_VALUE >> 1) |
-                    (xor<<11);
-    
+     s->LFSR_VALUE =(s->LFSR_VALUE >> 1) | (xor<<11);
 }
 
 static void stm32_dac_triangular_cnt1_update(void *opaque)
@@ -160,17 +159,12 @@ static void stm32_dac_triangular_cnt1_update(void *opaque)
     MAMP1= (MAMP1>11) ? 11 :MAMP1;
     max_amplitude =(1 << (MAMP1+1))-1;
 
-    if(s->inc_cnt1)
-       s->TRI_CNT1++;
-    else 
-       s->TRI_CNT1-- ;
+    if(s->inc_cnt1) s->TRI_CNT1++;
+    else            s->TRI_CNT1-- ;
 
-    if(s->TRI_CNT1>=max_amplitude)
-       s->inc_cnt1=false;
+    if(s->TRI_CNT1>=max_amplitude) s->inc_cnt1=false;
  
-    if(s->TRI_CNT1<=0)
-       s->inc_cnt1=true;
-     
+    if(s->TRI_CNT1<=0) s->inc_cnt1=true;
 }
 
 static void stm32_dac_triangular_cnt2_update(void *opaque)
@@ -181,17 +175,12 @@ static void stm32_dac_triangular_cnt2_update(void *opaque)
     MAMP2= (MAMP2>11) ? 11 :MAMP2;
     max_amplitude =(1 << (MAMP2+1))-1;
     
-    if(s->inc_cnt2)
-       s->TRI_CNT2++;
-    else 
-       s->TRI_CNT2-- ;
+    if(s->inc_cnt2) s->TRI_CNT2++;
+    else            s->TRI_CNT2-- ;
 
-    if(s->TRI_CNT2>=max_amplitude)
-       s->inc_cnt2=false;
+    if(s->TRI_CNT2>=max_amplitude) s->inc_cnt2=false;
  
-    if(s->TRI_CNT2<=0)
-       s->inc_cnt2=true;
-     
+    if(s->TRI_CNT2<=0) s->inc_cnt2=true;
 }
 
 static void stm32_dac_load_DOR1_registre(void *opaque) 
@@ -406,46 +395,28 @@ static void stm32_dac_reset(DeviceState *dev)
    */
 }
 
-static uint64_t stm32_dac_read(void *opaque, hwaddr offset,
-                          unsigned size)
+static uint64_t stm32_dac_read(void *opaque, hwaddr offset, unsigned size)
 {
-  
     Stm32Dac *s = (Stm32Dac *)opaque;
 
-    switch (offset & 0xffffffff) {
-
-       
-        case DAC_CR_OFFSET:
-            return s->DAC_CR; 
-        case DAC_SWTRIGR_OFFSET:
-            return s->DAC_SWTRIGR;
-        case DAC_DHR12R1_OFFSET:
-            return s->DAC_DHR12R1;
-        case DAC_DHR12L1_OFFSET:
-            return s->DAC_DHR12L1;
-        case DAC_DHR8R1_OFFSET:
-            return s->DAC_DHR8R1;
-        case DAC_DHR12R2_OFFSET:
-            return s->DAC_DHR12R2;
-        case DAC_DHR12L2_OFFSET:
-            return s->DAC_DHR12L2;
-        case DAC_DHR8R2_OFFSET:
-	    return s->DAC_DHR8R2;
-        case DAC_DHR12RD_OFFSET:
-            return s->DAC_DHR12RD;
-        case DAC_DHR12LD_OFFSET:
-            return s->DAC_DHR12LD;
-        case DAC_DHR8RD_OFFSET:
-            return s->DAC_DHR8RD;
-        case DAC_DOR1_OFFSET:
-	    return s->DAC_DOR1;
-        case DAC_DOR2_OFFSET:
-	    return s->DAC_DOR2;
-
-        default:
-            STM32_BAD_REG(offset, size);
-            return 0;
+    switch( offset & 0xffffffff )
+    {
+        case DAC_CR_OFFSET:      return s->DAC_CR;
+        case DAC_SWTRIGR_OFFSET: return s->DAC_SWTRIGR;
+        case DAC_DHR12R1_OFFSET: return s->DAC_DHR12R1;
+        case DAC_DHR12L1_OFFSET: return s->DAC_DHR12L1;
+        case DAC_DHR8R1_OFFSET:  return s->DAC_DHR8R1;
+        case DAC_DHR12R2_OFFSET: return s->DAC_DHR12R2;
+        case DAC_DHR12L2_OFFSET: return s->DAC_DHR12L2;
+        case DAC_DHR8R2_OFFSET:  return s->DAC_DHR8R2;
+        case DAC_DHR12RD_OFFSET: return s->DAC_DHR12RD;
+        case DAC_DHR12LD_OFFSET: return s->DAC_DHR12LD;
+        case DAC_DHR8RD_OFFSET:  return s->DAC_DHR8RD;
+        case DAC_DOR1_OFFSET:    return s->DAC_DOR1;
+        case DAC_DOR2_OFFSET:    return s->DAC_DOR2;
+        default:                 STM32_BAD_REG(offset, size);
     }
+        return 0;
 }
 
 static void stm32_dac_write(void *opaque, hwaddr offset,
@@ -491,7 +462,7 @@ static void stm32_dac_write(void *opaque, hwaddr offset,
            stm32_dac_write_DACC2_DHR(s,(s->DAC_DHR12L2 >> 4) & 0xfff);
            break; 
         case DAC_DHR8R2_OFFSET:
-	   s->DAC_DHR8R2=value;
+       s->DAC_DHR8R2=value;
            stm32_dac_write_DACC2_DHR(s,s->DAC_DHR8R2 & 0xff);
            break; 
         case DAC_DHR12RD_OFFSET:
@@ -510,10 +481,10 @@ static void stm32_dac_write(void *opaque, hwaddr offset,
            stm32_dac_write_DACC2_DHR(s,(s->DAC_DHR8RD >> 8) & 0xff);
            break; 
         case DAC_DOR1_OFFSET:
-	   hw_error("Software attempted to read DOR1 Registre \n");
+       hw_error("Software attempted to read DOR1 Registre \n");
            break; 
         case DAC_DOR2_OFFSET:
-	   hw_error("Software attempted to read DOR2 Registre \n");
+       hw_error("Software attempted to read DOR2 Registre \n");
            break; 
 
         default:
@@ -543,25 +514,17 @@ static void stm32_dac_init(Object *obj)
     //s->stm32_rcc = (Stm32Rcc *)s->stm32_rcc_prop;
     //s->stm32_gpio = (Stm32Gpio **)s->stm32_gpio_prop;
 
-    memory_region_init_io(&s->iomem, OBJECT(s), &stm32_dac_ops, s,
-                          "dac", 0x03ff);
+    memory_region_init_io(&s->iomem, OBJECT(s), &stm32_dac_ops, s, "dac", 0x03ff);
     sysbus_init_mmio(dev, &s->iomem);
 
     
-    s->DOR1_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, 
-                    (QEMUTimerCB *)stm32_dac_load_DOR1_registre, s);
-    s->DOR2_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, 
-                    (QEMUTimerCB *)stm32_dac_load_DOR2_registre, s);
-    s->TRI_CNT1_timer =timer_new_ns(QEMU_CLOCK_VIRTUAL, 
-                    (QEMUTimerCB *)stm32_dac_triangular_cnt1_update, s);
-    s->TRI_CNT2_timer =timer_new_ns(QEMU_CLOCK_VIRTUAL, 
-                    (QEMUTimerCB *)stm32_dac_triangular_cnt2_update, s);
-    s->CONV1_timer =timer_new_ns(QEMU_CLOCK_VIRTUAL, 
-                    (QEMUTimerCB *) stm32_dac_conv_DACC1, s);
-    s->CONV2_timer =timer_new_ns(QEMU_CLOCK_VIRTUAL, 
-                    (QEMUTimerCB *) stm32_dac_conv_DACC2, s);
-    s->LFSR_timer =timer_new_ns(QEMU_CLOCK_VIRTUAL, 
-                    (QEMUTimerCB *) stm32_dac_LFSR_update, s);
+    s->DOR1_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, (QEMUTimerCB *)stm32_dac_load_DOR1_registre, s);
+    s->DOR2_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, (QEMUTimerCB *)stm32_dac_load_DOR2_registre, s);
+    s->TRI_CNT1_timer =timer_new_ns(QEMU_CLOCK_VIRTUAL, (QEMUTimerCB *)stm32_dac_triangular_cnt1_update, s);
+    s->TRI_CNT2_timer =timer_new_ns(QEMU_CLOCK_VIRTUAL, (QEMUTimerCB *)stm32_dac_triangular_cnt2_update, s);
+    s->CONV1_timer =timer_new_ns(QEMU_CLOCK_VIRTUAL, (QEMUTimerCB *) stm32_dac_conv_DACC1, s);
+    s->CONV2_timer =timer_new_ns(QEMU_CLOCK_VIRTUAL, (QEMUTimerCB *) stm32_dac_conv_DACC2, s);
+    s->LFSR_timer =timer_new_ns(QEMU_CLOCK_VIRTUAL, (QEMUTimerCB *) stm32_dac_LFSR_update, s);
    
     /* Register handlers to handle updates to the RTC's peripheral clock. */
     /*clk_irq =
@@ -610,7 +573,7 @@ static void stm32_dac_class_init(ObjectClass *klass, void *data)
     //SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
 
     //k->init = stm32_dac_init;
-    //来自qemu_stm32的过时代码
+
     //dc->reset = stm32_dac_reset;
     device_class_set_legacy_reset( dc,stm32_dac_reset);
     dc->realize = stm32_dac_realize;

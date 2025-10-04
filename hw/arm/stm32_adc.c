@@ -1065,7 +1065,6 @@ static void stm32_adc_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
     //SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
 
-    //Obsolete code from qemu_stm32
     //dc->reset = stm32_adc_reset;
     device_class_set_legacy_reset( dc,stm32_adc_reset);
     dc->realize = stm32_adc_realize;

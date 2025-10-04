@@ -46,7 +46,7 @@
 #include "cpu.h"
 
 typedef struct Stm32Flash {
-	SysBusDevice busdev;   
+    SysBusDevice busdev;
     BlockBackend * blks;
     hwaddr base_address;
     uint32_t size;
@@ -71,7 +71,7 @@ Stm32Flash *stm32_flash_register(BlockBackend *blks, hwaddr base,
     qdev_prop_set_uint32(dev, "size", size);
     qdev_prop_set_uint64(dev, "base_address", base);
     if (blks) {
-    	
+
         if (!qdev_prop_set_drive_err(dev, "drive", blks, &err)) {
             error_reportf_err(err, "%s, have no drive???", __func__);
             return NULL;
@@ -156,9 +156,9 @@ static void stm32_flash_realize(DeviceState *dev, Error **errp)
 static void
 stm32_flash_reset(DeviceState *ds)
 {
-	Stm32Flash *s = STM32_FLASH(ds);
+    Stm32Flash *s = STM32_FLASH(ds);
 
-	printf("reset is called!\n\n");
+    printf("reset is called!\n\n");
    
     //ARM M3 FLASH reset
     ARMCPU *cpu = ARM_CPU(qemu_get_cpu(0));
@@ -180,30 +180,30 @@ static Property stm32_flash_properties[] = {
 
 static void stm32_flash_class_init(ObjectClass *klass, void *data)
 {
-	DeviceClass *dc = DEVICE_CLASS(klass);
-	//SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
+    DeviceClass *dc = DEVICE_CLASS(klass);
+    //SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
 
-	//k->init = stm32_flash_init;
-	//dc->props = stm32_flash_properties;
-	//来自qemu_stm32的过时代码
-	//dc->reset = stm32_flash_reset;
-	device_class_set_legacy_reset( dc,stm32_flash_reset);
+    //k->init = stm32_flash_init;
+    //dc->props = stm32_flash_properties;
+
+    //dc->reset = stm32_flash_reset;
+    device_class_set_legacy_reset( dc,stm32_flash_reset);
     dc->realize = stm32_flash_realize;
     device_class_set_props(dc, stm32_flash_properties);
 }
 
 static TypeInfo stm32_flash_info = {
-	.name          = "stm32-flash",
-	.parent        = TYPE_SYS_BUS_DEVICE,
-	.instance_size = sizeof(Stm32Flash),
-	.instance_init = stm32_flash_init,
-	.class_init    = stm32_flash_class_init,
+    .name          = "stm32-flash",
+    .parent        = TYPE_SYS_BUS_DEVICE,
+    .instance_size = sizeof(Stm32Flash),
+    .instance_init = stm32_flash_init,
+    .class_init    = stm32_flash_class_init,
 };
 
 
 static void stm32_flash_register_types(void)
 {
-	type_register_static(&stm32_flash_info);
+    type_register_static(&stm32_flash_info);
 }
 
 type_init(stm32_flash_register_types);
@@ -269,228 +269,228 @@ type_init(stm32_flash_register_types);
 ///
 
 typedef struct Stm32FlashRegs {
-	SysBusDevice busdev;
-	MemoryRegion iomem;
+    SysBusDevice busdev;
+    MemoryRegion iomem;
 
-	uint32_t ACR;
-	uint32_t KEYR;
-	uint32_t OPTKEYR;
-	uint32_t SR;
-	uint32_t CR;
-	uint32_t AR;
-	uint32_t RESERVED;
-	uint32_t OBR;
-	uint32_t WRPR;
+    uint32_t ACR;
+    uint32_t KEYR;
+    uint32_t OPTKEYR;
+    uint32_t SR;
+    uint32_t CR;
+    uint32_t AR;
+    uint32_t RESERVED;
+    uint32_t OBR;
+    uint32_t WRPR;
 } Stm32FlashRegs;
 
 static uint64_t
 stm32_flash_regs_read(void *arg, hwaddr addr, unsigned int size)
 {
-	Stm32FlashRegs *s = arg;
+    Stm32FlashRegs *s = arg;
 
-	if (size != 4) {
-		qemu_log_mask(LOG_UNIMP, "stm32 flash only supports 4-byte reads\n");
-		return 0;
-	}
+    if (size != 4) {
+        qemu_log_mask(LOG_UNIMP, "stm32 flash only supports 4-byte reads\n");
+        return 0;
+    }
 
-	addr >>= 2;
-	if (addr >= R_FLASH_MAX) {
-		qemu_log_mask(LOG_GUEST_ERROR, "invalid read stm32 flash register 0x%x\n",
-		  (unsigned int)addr << 2);
-		return 0;
-	}
+    addr >>= 2;
+    if (addr >= R_FLASH_MAX) {
+        qemu_log_mask(LOG_GUEST_ERROR, "invalid read stm32 flash register 0x%x\n",
+          (unsigned int)addr << 2);
+        return 0;
+    }
 
-	switch(addr) {
-	case R_FLASH_ACR:
-		return s->ACR;
-	case R_FLASH_KEYR:
-		return s->KEYR;
-	case R_FLASH_OPTKEYR:
-		return s->OPTKEYR;
-	case R_FLASH_SR:
-		return s->SR;
-	case R_FLASH_CR:
-		return s->CR;
-	case R_FLASH_AR:
-		return s->AR;
-	case R_FLASH_RESERVED:
-		return s->RESERVED;
-	case R_FLASH_OBR:
-		return s->OBR;
-	case R_FLASH_WRPR:
-		return s->WRPR;
-	}
-	return 0;
+    switch(addr) {
+    case R_FLASH_ACR:
+        return s->ACR;
+    case R_FLASH_KEYR:
+        return s->KEYR;
+    case R_FLASH_OPTKEYR:
+        return s->OPTKEYR;
+    case R_FLASH_SR:
+        return s->SR;
+    case R_FLASH_CR:
+        return s->CR;
+    case R_FLASH_AR:
+        return s->AR;
+    case R_FLASH_RESERVED:
+        return s->RESERVED;
+    case R_FLASH_OBR:
+        return s->OBR;
+    case R_FLASH_WRPR:
+        return s->WRPR;
+    }
+    return 0;
 }
 
 
 static void
 stm32_flash_regs_write(void *arg, hwaddr addr, uint64_t data, unsigned int size)
 {
-	Stm32FlashRegs *s = arg;
+    Stm32FlashRegs *s = arg;
 
-	/* XXX Check periph clock enable. */
-	if (size != 4) {
-		qemu_log_mask(LOG_UNIMP, "stm32 flash only supports 4-byte writes\n");
-		return;
-	}
+    /* XXX Check periph clock enable. */
+    if (size != 4) {
+        qemu_log_mask(LOG_UNIMP, "stm32 flash only supports 4-byte writes\n");
+        return;
+    }
 
-	addr >>= 2;
-	if (addr >= R_FLASH_MAX) {
-		qemu_log_mask(LOG_GUEST_ERROR, "invalid write stm32 flash register 0x%x\n",
-		  (unsigned int)addr << 2);
-		return;
-	}
-	switch(addr) {
-	case R_FLASH_ACR:
-		s->ACR = data;
-		break;
+    addr >>= 2;
+    if (addr >= R_FLASH_MAX) {
+        qemu_log_mask(LOG_GUEST_ERROR, "invalid write stm32 flash register 0x%x\n",
+          (unsigned int)addr << 2);
+        return;
+    }
+    switch(addr) {
+    case R_FLASH_ACR:
+        s->ACR = data;
+        break;
 
-	case R_FLASH_KEYR:
-		if (s->KEYR == FLASH_OPTKEY1 && data == FLASH_OPTKEY2) {
+    case R_FLASH_KEYR:
+        if (s->KEYR == FLASH_OPTKEY1 && data == FLASH_OPTKEY2) {
 #ifdef DEBUG_FLASH
-			printf("Flash is unlocked!\n");
+            printf("Flash is unlocked!\n");
 #endif            
-			s->CR &= ~FLASH_CR_LOCK;
-			is_flash_locked = 0;
-		}
-		s->KEYR = data;
-		break;
+            s->CR &= ~FLASH_CR_LOCK;
+            is_flash_locked = 0;
+        }
+        s->KEYR = data;
+        break;
 
-	case R_FLASH_OPTKEYR:
-		s->OPTKEYR = data;
-		break;
+    case R_FLASH_OPTKEYR:
+        s->OPTKEYR = data;
+        break;
 
-	case R_FLASH_SR:
-		s->SR = data;
-		break;
+    case R_FLASH_SR:
+        s->SR = data;
+        break;
 
-	case R_FLASH_CR:
-		if (is_flash_locked == 0 && (data & FLASH_CR_LOCK)) {
-			if (data & FLASH_CR_PG)
-				hw_error("stm32_flash: Attempted to write flash lock while flash program is on!");
+    case R_FLASH_CR:
+        if (is_flash_locked == 0 && (data & FLASH_CR_LOCK)) {
+            if (data & FLASH_CR_PG)
+                hw_error("stm32_flash: Attempted to write flash lock while flash program is on!");
 #ifdef DEBUG_FLASH            
-			printf("Flash is locked!\n");
+            printf("Flash is locked!\n");
 #endif            
-			//s->CR &= ~FLASH_CR_LOCK;
-			is_flash_locked = 1;
+            //s->CR &= ~FLASH_CR_LOCK;
+            is_flash_locked = 1;
             memory_region_set_readonly(&flash->iomem, true);
 
-		} else if ( (s->CR & FLASH_CR_PER) && (data & FLASH_CR_STRT) ) { //erase
-			if (data & FLASH_CR_PG || (data & FLASH_CR_LOCK))
-				hw_error("stm32_flash: Attempted to erase flash block while flash program/flash lock is on!");
+        } else if ( (s->CR & FLASH_CR_PER) && (data & FLASH_CR_STRT) ) { //erase
+            if (data & FLASH_CR_PG || (data & FLASH_CR_LOCK))
+                hw_error("stm32_flash: Attempted to erase flash block while flash program/flash lock is on!");
 #ifdef DEBUG_FLASH
-			printf("start erase address 0x%08X \n", s->AR);
-#endif			
+            printf("start erase address 0x%08X \n", s->AR);
+#endif
             if ( (s->AR % 1024) == 0 && (s->AR >= STM32_FLASH_ADDR_START) && (s->AR <= (STM32_FLASH_ADDR_START+flash->size-1024) ) ) { 
                 memset(flash->data+(s->AR-STM32_FLASH_ADDR_START) , 0xFF, 1024);
 #ifdef DEBUG_FLASH              
               printf("erased\n");
 #endif              
-			} else {
-				printf("ADDRESS: %u 0X%08X MAX=%u\n", s->AR, s->AR, STM32_FLASH_ADDR_START+flash->size - 1024);
-				hw_error("stm32_flash: Attempted to erase flash memory page while address is not alligned!");
-			}
+            } else {
+                printf("ADDRESS: %u 0X%08X MAX=%u\n", s->AR, s->AR, STM32_FLASH_ADDR_START+flash->size - 1024);
+                hw_error("stm32_flash: Attempted to erase flash memory page while address is not alligned!");
+            }
             
-		} else if (data & FLASH_CR_PG) {
-			if (data & FLASH_CR_LOCK || data & FLASH_CR_PER)
-				hw_error("stm32_flash: Attempted to write flash program while flash lock/flash erase is on!");
-			flash_programming_bit = 1;
+        } else if (data & FLASH_CR_PG) {
+            if (data & FLASH_CR_LOCK || data & FLASH_CR_PER)
+                hw_error("stm32_flash: Attempted to write flash program while flash lock/flash erase is on!");
+            flash_programming_bit = 1;
             memory_region_set_readonly(&flash->iomem, false);
 
-		} else if (data & ~FLASH_CR_PG) {
-			flash_programming_bit = 0;
-		}
+        } else if (data & ~FLASH_CR_PG) {
+            flash_programming_bit = 0;
+        }
 
-		s->CR = data;
-		break;
+        s->CR = data;
+        break;
 
-	case R_FLASH_AR:
-		s->AR = data;
-		break;
+    case R_FLASH_AR:
+        s->AR = data;
+        break;
 
-	case R_FLASH_RESERVED:
-		s->RESERVED = data;
-		break;
+    case R_FLASH_RESERVED:
+        s->RESERVED = data;
+        break;
 
-	case R_FLASH_OBR:
-		s->OBR = data;
-		break;
+    case R_FLASH_OBR:
+        s->OBR = data;
+        break;
 
-	case R_FLASH_WRPR:
-		s->WRPR = data;
-		break;
+    case R_FLASH_WRPR:
+        s->WRPR = data;
+        break;
 
-	}
+    }
 
-	return;
+    return;
 }
 
 static const MemoryRegionOps stm32_flash_regs_ops = {
-	.read = stm32_flash_regs_read,
-	.write = stm32_flash_regs_write,
-	.endianness = DEVICE_NATIVE_ENDIAN,
-	.impl = {
-		.min_access_size = 1,
-		.max_access_size = 4,
-	}
+    .read = stm32_flash_regs_read,
+    .write = stm32_flash_regs_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
+    .impl = {
+        .min_access_size = 1,
+        .max_access_size = 4,
+    }
 };
 
 static void
 stm32_flash_regs_init(Object *obj)
 {    
     SysBusDevice *dev= SYS_BUS_DEVICE(obj);
-	Stm32FlashRegs *s = STM32_FLASH_REGS(dev);
+    Stm32FlashRegs *s = STM32_FLASH_REGS(dev);
 
-	memory_region_init_io(&s->iomem, OBJECT(s), &stm32_flash_regs_ops, s, "flash-regs", 0x400);
-	sysbus_init_mmio(dev, &s->iomem);
+    memory_region_init_io(&s->iomem, OBJECT(s), &stm32_flash_regs_ops, s, "flash-regs", 0x400);
+    sysbus_init_mmio(dev, &s->iomem);
 
-	return ;
+    return ;
 }
 
 static void
 stm32_flash_regs_reset(DeviceState *ds)
 {
-	Stm32FlashRegs *s = STM32_FLASH_REGS(ds);
+    Stm32FlashRegs *s = STM32_FLASH_REGS(ds);
 
-	s->ACR = 0;
-	s->KEYR = 0;
-	s->OPTKEYR = 0;
-	s->SR = 0;
-	s->CR = 0;
-	s->AR = 0;
-	s->RESERVED = 0;
-	s->OBR = 0;
-	s->WRPR = 0;
+    s->ACR = 0;
+    s->KEYR = 0;
+    s->OPTKEYR = 0;
+    s->SR = 0;
+    s->CR = 0;
+    s->AR = 0;
+    s->RESERVED = 0;
+    s->OBR = 0;
+    s->WRPR = 0;
 
-	is_flash_locked = 1;
+    is_flash_locked = 1;
 }
 
 
 static void
 stm32_flash_regs_class_init(ObjectClass *klass, void *data)
 {
-	DeviceClass *dc = DEVICE_CLASS(klass);
-	//SysBusDeviceClass *sc = SYS_BUS_DEVICE_CLASS(klass);
-	//sc->init = stm32_flash_regs_init;
-	//来自qemu_stm32的过时代码
-	//dc->reset = stm32_flash_regs_reset;
-	device_class_set_legacy_reset( dc,stm32_flash_regs_reset);
+    DeviceClass *dc = DEVICE_CLASS(klass);
+    //SysBusDeviceClass *sc = SYS_BUS_DEVICE_CLASS(klass);
+    //sc->init = stm32_flash_regs_init;
+    //来自qemu_stm32的过时代码
+    //dc->reset = stm32_flash_regs_reset;
+    device_class_set_legacy_reset( dc,stm32_flash_regs_reset);
 }
 
 static const TypeInfo
 stm32_crc_info = {
-	.name          = "stm32-flash-regs",
-	.parent        = TYPE_SYS_BUS_DEVICE,
-	.instance_size = sizeof(Stm32FlashRegs),
-	.instance_init = stm32_flash_regs_init,
-	.class_init    = stm32_flash_regs_class_init,
+    .name          = "stm32-flash-regs",
+    .parent        = TYPE_SYS_BUS_DEVICE,
+    .instance_size = sizeof(Stm32FlashRegs),
+    .instance_init = stm32_flash_regs_init,
+    .class_init    = stm32_flash_regs_class_init,
 };
 
 static void
 stm32_crc_register_types(void)
 {
-	type_register_static(&stm32_crc_info);
+    type_register_static(&stm32_crc_info);
 }
 
 type_init(stm32_crc_register_types);

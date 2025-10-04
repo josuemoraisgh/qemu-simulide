@@ -92,8 +92,7 @@ static uint32_t stm32_afio_AFIO_MAPR_read(Stm32Afio *s)
            (s->Remap[STM32_TIM4] << AFIO_MAPR_TIM4_REMAP_BIT);     
 }
 
-static void stm32_afio_AFIO_MAPR_write(Stm32Afio *s, uint32_t new_value,
-                                        bool init)
+static void stm32_afio_AFIO_MAPR_write(Stm32Afio *s, uint32_t new_value, bool init)
 {
     s->AFIO_MAPR = new_value;
 	s->Remap[STM32_SPI1] = extract32(s->AFIO_MAPR, AFIO_MAPR_SPI1_REMAP_BIT, 1);
@@ -113,8 +112,7 @@ static void stm32_afio_AFIO_MAPR_write(Stm32Afio *s, uint32_t new_value,
  * indicate which GPIO the line is connected to.  When the register is
  * written, the changes are propagated to the EXTI module.
  */
-static void stm32_afio_AFIO_EXTICR_write(Stm32Afio *s, unsigned index,
-                                            uint32_t new_value, bool init)
+static void stm32_afio_AFIO_EXTICR_write(Stm32Afio *s, unsigned index, uint32_t new_value, bool init)
 {
     int i;
     unsigned exti_line;
@@ -146,36 +144,25 @@ static void stm32_afio_AFIO_EXTICR_write(Stm32Afio *s, unsigned index,
     s->AFIO_EXTICR[index] = new_value;
 }
 
-static uint64_t stm32_afio_read(void *opaque, hwaddr offset,
-                          unsigned size)
+static uint64_t stm32_afio_read(void *opaque, hwaddr offset, unsigned size)
 {
     Stm32Afio *s = (Stm32Afio *)opaque;
 
     stm32_rcc_check_periph_clk((Stm32Rcc *)s->stm32_rcc, STM32_AFIO_PERIPH);
 
-    switch (offset) {
-        case AFIO_EVCR_OFFSET:
-            STM32_NOT_IMPL_REG(offset, size);
-            break;
-        case AFIO_MAPR_OFFSET:
-            return stm32_afio_AFIO_MAPR_read(s);
-        case AFIO_EXTICR1_OFFSET:
-            return s->AFIO_EXTICR[0];
-        case AFIO_EXTICR2_OFFSET:
-            return s->AFIO_EXTICR[1];
-        case AFIO_EXTICR3_OFFSET:
-            return s->AFIO_EXTICR[2];
-        case AFIO_EXTICR4_OFFSET:
-            return s->AFIO_EXTICR[3];
-        default:
-            STM32_BAD_REG(offset, size);
-            return 0;
+    switch( offset ) {
+        case AFIO_EVCR_OFFSET:    STM32_NOT_IMPL_REG(offset, size); break;
+        case AFIO_MAPR_OFFSET:    return stm32_afio_AFIO_MAPR_read(s);
+        case AFIO_EXTICR1_OFFSET: return s->AFIO_EXTICR[0];
+        case AFIO_EXTICR2_OFFSET: return s->AFIO_EXTICR[1];
+        case AFIO_EXTICR3_OFFSET: return s->AFIO_EXTICR[2];
+        case AFIO_EXTICR4_OFFSET: return s->AFIO_EXTICR[3];
+        default:                  STM32_BAD_REG(offset, size);
     }
     return 0;
 }
 
-static void stm32_afio_write(void *opaque, hwaddr offset,
-                       uint64_t value, unsigned size)
+static void stm32_afio_write(void *opaque, hwaddr offset, uint64_t value, unsigned size)
 {
     Stm32Afio *s = (Stm32Afio *)opaque;
 
@@ -300,7 +287,7 @@ static void stm32_afio_class_init(ObjectClass *klass, void *data)
     //SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
 
     //k->init = stm32_afio_init;
-    //来自qemu_stm32的过时代码
+
     //dc->reset = stm32_afio_reset;
     device_class_set_legacy_reset( dc,stm32_afio_reset);
     //dc->props = stm32_afio_properties;

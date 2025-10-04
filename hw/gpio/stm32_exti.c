@@ -23,20 +23,13 @@
 #include "qemu/bitops.h"
 #include "hw/irq.h"
 
-
-
 /* DEFINITIONS*/
 
 #define EXTI_IMR_OFFSET 0x00
-
 #define EXTI_EMR_OFFSET 0x04
-
 #define EXTI_RTSR_OFFSET 0x08
-
 #define EXTI_FTSR_OFFSET 0x0c
-
 #define EXTI_SWIER_OFFSET 0x10
-
 #define EXTI_PR_OFFSET 0x14
 
 /* There are 20 lines for CL devices.  Non-CL devices have only 19, but it
@@ -64,8 +57,7 @@ struct Stm32Exti {
     qemu_irq irq[EXTI_IRQ_COUNT];
 };
 
-static void stm32_exti_change_EXTI_PR_bit(Stm32Exti *s, unsigned pos,
-                                            unsigned new_bit_value);
+static void stm32_exti_change_EXTI_PR_bit(Stm32Exti *s, unsigned pos, unsigned new_bit_value);
 
 
 
@@ -103,14 +95,12 @@ static void stm32_exti_gpio_in_handler(void *opaque, int n, int level)
 
 
 
-
 /* REGISTER IMPLEMENTATION */
 
 /* Update a Trigger Selection Register (both the Rising and Falling TSR
  * registers are handled by this routine).
  */
-static void update_TSR_bit(Stm32Exti *s, uint32_t *tsr_register, unsigned pos,
-                                    unsigned new_bit_value)
+static void update_TSR_bit(Stm32Exti *s, uint32_t *tsr_register, unsigned pos, unsigned new_bit_value)
 {
     assert((new_bit_value == 0) || (new_bit_value == 1));
     assert(pos < EXTI_LINE_COUNT);
@@ -126,8 +116,7 @@ static void update_TSR_bit(Stm32Exti *s, uint32_t *tsr_register, unsigned pos,
 /* Update the Pending Register.  This will trigger an interrupt if a bit is
  * set.
  */
-static void stm32_exti_change_EXTI_PR_bit(Stm32Exti *s, unsigned pos,
-                                            unsigned new_bit_value)
+static void stm32_exti_change_EXTI_PR_bit(Stm32Exti *s, unsigned pos, unsigned new_bit_value)
 {
     unsigned old_bit_value;
 
@@ -137,13 +126,12 @@ static void stm32_exti_change_EXTI_PR_bit(Stm32Exti *s, unsigned pos,
     old_bit_value = extract32(s->EXTI_PR, pos, 1);
 
     /* Only continue if the PR bit is actually changing value. */
-    if(new_bit_value != old_bit_value) {
+    if(new_bit_value != old_bit_value)
+    {
         /* If the bit is being reset, the corresponding Software Interrupt Event
          * Register bit is automatically reset.
          */
-        if(!new_bit_value) {
-            s->EXTI_SWIER &= ~BIT(pos);
-        }
+        if(!new_bit_value) s->EXTI_SWIER &= ~BIT(pos);
 
         /* Update the IRQ for this EXTI line.  Some lines share the same
          * NVIC IRQ.
@@ -175,35 +163,25 @@ static void stm32_exti_change_EXTI_PR_bit(Stm32Exti *s, unsigned pos,
     }
 }
 
-static uint64_t stm32_exti_read(void *opaque, hwaddr offset,
-                          unsigned size)
+static uint64_t stm32_exti_read(void *opaque, hwaddr offset, unsigned size)
 {
     Stm32Exti *s = (Stm32Exti *)opaque;
 
     assert(size == 4);
 
     switch (offset) {
-        case EXTI_IMR_OFFSET:
-            return s->EXTI_IMR;
-        case EXTI_EMR_OFFSET:
-            /* Do nothing, events are not implemented yet. */
-            return 0;
-        case EXTI_RTSR_OFFSET:
-            return s->EXTI_RTSR;
-        case EXTI_FTSR_OFFSET:
-            return s->EXTI_FTSR;
-        case EXTI_SWIER_OFFSET:
-            return s->EXTI_SWIER;
-        case EXTI_PR_OFFSET:
-            return s->EXTI_PR;
-        default:
-            STM32_BAD_REG(offset, size);
-            return 0;
+        case EXTI_IMR_OFFSET:   return s->EXTI_IMR;
+        case EXTI_EMR_OFFSET:   return 0; /* Do nothing, events are not implemented yet. */
+        case EXTI_RTSR_OFFSET:  return s->EXTI_RTSR;
+        case EXTI_FTSR_OFFSET:  return s->EXTI_FTSR;
+        case EXTI_SWIER_OFFSET: return s->EXTI_SWIER;
+        case EXTI_PR_OFFSET:    return s->EXTI_PR;
+        default:                STM32_BAD_REG(offset, size);
     }
+    return 0;
 }
 
-static void stm32_exti_write(void *opaque, hwaddr offset,
-                       uint64_t value, unsigned size)
+static void stm32_exti_write(void *opaque, hwaddr offset, uint64_t value, unsigned size)
 {
     Stm32Exti *s = (Stm32Exti *)opaque;
     int pos, bit_value;
@@ -289,17 +267,14 @@ static void stm32_exti_reset(DeviceState *dev)
 static void stm32_exti_init(Object *obj)
 {
     SysBusDevice *dev= SYS_BUS_DEVICE(obj);
-    int i;
 
     Stm32Exti *s = STM32_EXTI(dev);
 
-    memory_region_init_io(&s->iomem, OBJECT(s), &stm32_exti_ops, s,
-            "exti", 0x03ff);
+    memory_region_init_io(&s->iomem, OBJECT(s), &stm32_exti_ops, s, "exti", 0x03ff);
     sysbus_init_mmio(dev, &s->iomem);
 
-    for(i = 0; i < EXTI_IRQ_COUNT; i++) {
+    for( int i=0; i<EXTI_IRQ_COUNT; i++ )
         sysbus_init_irq(dev, &s->irq[i]);
-    }
 
     /* Create the handlers to handle GPIO input pin changes. */
     qdev_init_gpio_in(DEVICE(dev), stm32_exti_gpio_in_handler, STM32_GPIO_PIN_COUNT);
@@ -311,9 +286,7 @@ static void stm32_exti_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     //SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
-
     //k->init = stm32_exti_init;
-    //来自qemu_stm32的过时代码
     //dc->reset = stm32_exti_reset;
     device_class_set_legacy_reset( dc,stm32_exti_reset);
 }

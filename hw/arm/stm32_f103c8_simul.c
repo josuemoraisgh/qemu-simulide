@@ -183,8 +183,8 @@ static void stm32_f103c8_init( MachineState *machine )
    stm32_uart_connect( (Stm32Uart *)s->uart3, serial_hd(2), STM32_USART3_NO_REMAP );
 
    DeviceState *i2c_master1 = DEVICE(s->i2c1);
-   I2CBus *i2c_bus1 = I2C_BUS(qdev_get_child_bus(i2c_master1, "i2c"));
-   i2c_slave_create_simple(i2c_bus1, "i2c_iface", 0x00);
+   I2CBus *i2c_bus1 = I2C_BUS( qdev_get_child_bus(i2c_master1, "i2c") );
+   i2c_slave_create_simple( i2c_bus1, "i2c_iface", 0x00 );
 
    DeviceState *i2c_master2 = DEVICE(s->i2c2);
    I2CBus *i2c_bus2 = I2C_BUS(qdev_get_child_bus(i2c_master2, "i2c"));

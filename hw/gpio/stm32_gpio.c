@@ -238,10 +238,10 @@ static void stm32_gpio_reset( DeviceState *dev )
 
 /* PUBLIC FUNCTIONS */
 
-uint8_t stm32_gpio_is_analog(Stm32Gpio *s, unsigned pin)
-{
-    return true; //m_analog & 1<<pin;
-}
+//uint8_t stm32_gpio_is_analog(Stm32Gpio *s, unsigned pin)
+//{
+//    return true; //m_analog & 1<<pin;
+//}
 
 //uint8_t stm32_gpio_get_config_bits(Stm32Gpio *s, unsigned pin) {
 //    return (stm32_gpio_get_pin_config(s, pin) >> 2) & 0x3;

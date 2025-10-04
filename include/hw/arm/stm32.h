@@ -300,7 +300,7 @@ uint8_t stm32_gpio_get_mode_bits(Stm32Gpio *s, unsigned pin);
 #define STM32_GPIO_OUT_ALT_OPEN 3
 //uint8_t stm32_gpio_get_config_bits(Stm32Gpio *s, unsigned pin);
 
-uint8_t stm32_gpio_is_analog(Stm32Gpio *s, unsigned pin);
+//uint8_t stm32_gpio_is_analog(Stm32Gpio *s, unsigned pin);
 
 
 

@@ -312,12 +312,12 @@ void stm32_init(ram_addr_t flash_size, ram_addr_t ram_size,
  if( kernel_filename)
     qdev_prop_set_string(dev, "kernel-file", kernel_filename);
 
-  qdev_prop_set_uint64(dev, "flash_size", flash_size);
-  qdev_prop_set_uint64(dev, "ram_size"  , ram_size);
-  qdev_prop_set_uint32(dev, "osc_freq"  , osc_freq);
-  qdev_prop_set_uint32(dev, "osc32_freq", osc32_freq);
-  qdev_connect_clock_in(dev, "sysclk", sysclk);
-  sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+  qdev_prop_set_uint64(  dev, "flash_size", flash_size);
+  qdev_prop_set_uint64(  dev, "ram_size"  , ram_size);
+  qdev_prop_set_uint32(  dev, "osc_freq"  , osc_freq);
+  qdev_prop_set_uint32(  dev, "osc32_freq", osc32_freq);
+  qdev_connect_clock_in( dev, "sysclk"    , sysclk);
+  sysbus_realize_and_unref( SYS_BUS_DEVICE(dev), &error_fatal );
 }
 
 static MemTxResult dwt_write(void *opaque, hwaddr addr, uint64_t value, unsigned size, MemTxAttrs attrs)
@@ -447,7 +447,7 @@ static void stm32f103_soc_realize( DeviceState *dev_soc, Error **errp )
     return;
 
   DeviceState *rcc_dev = qdev_new("stm32-rcc");
-  qdev_prop_set_uint32( rcc_dev, "osc_freq", s->osc_freq);
+  qdev_prop_set_uint32( rcc_dev, "osc_freq"  , s->osc_freq);
   qdev_prop_set_uint32( rcc_dev, "osc32_freq", s->osc32_freq);
   stm32_rcc_set_sysclk( STM32_RCC(rcc_dev), s->sysclk);
   object_property_add_child( stm32_container, "rcc", OBJECT(rcc_dev));

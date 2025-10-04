@@ -103,7 +103,6 @@ struct Stm32Rtc {
 
 static void stm32_rtc_clk_irq_handler(void *opaque, int n, int level)
 {
-
     Stm32Rtc *s=(Stm32Rtc*)opaque;        
     s->freq=stm32_rcc_get_periph_freq(s->stm32_rcc,s->periph);
     if(s->freq){
@@ -112,12 +111,11 @@ static void stm32_rtc_clk_irq_handler(void *opaque, int n, int level)
         ptimer_set_count(s->ptimer,s->prescaler+1);
         ptimer_run(s->ptimer, 1);
         ptimer_transaction_commit(s->ptimer);
-    }    
-    
+    }
 }
 
-static void stm32_rtc_update_irq(Stm32Rtc *s) {
-
+static void stm32_rtc_update_irq(Stm32Rtc *s)
+{
      int new_irq_level =
        ((s->RTC_CR[1] >> RTC_CRH_SECIE_BIT) & (s->RTC_CR[0] >> RTC_CRL_SECF_BIT)) |
        ((s->RTC_CR[1] >> RTC_CRH_ALRIE_BIT) & (s->RTC_CR[0] >> RTC_CRL_ALRF_BIT)) |
@@ -125,17 +123,16 @@ static void stm32_rtc_update_irq(Stm32Rtc *s) {
 
     /* trigger an interrupt on IRQ level change */
     if(new_irq_level & 0x07) {
-	    
+
         /* Auto clear the processed IRQ */
-	s->RTC_CR[0] &= ~(RTC_CRL_SECF_BIT | RTC_CRL_ALRF_BIT | RTC_CRL_OWF_BIT);
+    s->RTC_CR[0] &= ~(RTC_CRL_SECF_BIT | RTC_CRL_ALRF_BIT | RTC_CRL_OWF_BIT);
 
         qemu_set_irq(s->irq, new_irq_level);
 
-	/* The MCU dispatches the IRQ immediately */
+    /* The MCU dispatches the IRQ immediately */
         qemu_set_irq(s->irq, 0);
     }
 }
-
 
 static int stm32_rtc_check_alarm(Stm32Rtc* s)
 {
@@ -143,8 +140,7 @@ static int stm32_rtc_check_alarm(Stm32Rtc* s)
           ((s->RTC_ALR[1] << 16) | (s->RTC_ALR[0]));
 }
 
-/* functon called each cycle of
-   f_TR_CLK=RTCCLK/(PRL[19-0]+1)*/
+/* functon called each cycle of f_TR_CLK=RTCCLK/(PRL[19-0]+1)*/
 static void stm32_rtc_tick(void *opaque)
 {
     Stm32Rtc *s=(Stm32Rtc*)opaque; 
@@ -178,7 +174,6 @@ static void stm32_rtc_tick(void *opaque)
     ptimer_run(s->ptimer, 1);
 }
 
-
 static void stm32_rtc_reset(DeviceState *dev)
 {
    Stm32Rtc *s = STM32_RTC(dev);
@@ -190,27 +185,20 @@ static void stm32_rtc_reset(DeviceState *dev)
    s->RTC_PRL[1]=0x0000;
    s->RTC_CNT[1]=0x0000;
    s->RTC_ALR[1]=0xFFFF;
-   s->prescaler=((s->RTC_PRL[1]&0x000f)<<16)|
-                           s->RTC_PRL[0];
-
+   s->prescaler=((s->RTC_PRL[1]&0x000f)<<16)| s->RTC_PRL[0];
 }
 
-static uint64_t stm32_rtc_read(void *opaque, hwaddr offset,
-                          unsigned size)
+static uint64_t stm32_rtc_read(void *opaque, hwaddr offset, unsigned size)
 {
-  
-
     Stm32Rtc *s = (Stm32Rtc *)opaque;
 
     switch (offset & 0xffffffff) {
 
         case RTC_PRLH_OFFSET:
-         hw_error("attempted to read\
-                   PRLH registre");
+         hw_error("attempted to read PRLH register");
             return 0;
         case RTC_PRLL_OFFSET:
-         hw_error("attempted to read\
-                   PRLL registre");
+         hw_error("attempted to read PRLL register");
             return 0;
         case RTC_CRH_OFFSET:
             return s->RTC_CR[1]; 
@@ -227,18 +215,15 @@ static uint64_t stm32_rtc_read(void *opaque, hwaddr offset,
         case RTC_ALRH_OFFSET:
             return s->RTC_ALR[1];
         case RTC_ALRL_OFFSET:
-	    return s->RTC_ALR[0];
+        return s->RTC_ALR[0];
         default:
             STM32_BAD_REG(offset, size);
             return 0;
     }
 }
 
-static void stm32_rtc_write(void *opaque, hwaddr offset,
-                       uint64_t value, unsigned size)
-{ 
-
-
+static void stm32_rtc_write(void *opaque, hwaddr offset, uint64_t value, unsigned size)
+{
       Stm32Rtc *s = (Stm32Rtc *)opaque;
     /* software can only write in (PRL,ALR,CNT)
        registre if CNF bit is set */
@@ -256,7 +241,7 @@ static void stm32_rtc_write(void *opaque, hwaddr offset,
     switch (offset & 0xffffffff) {
         case RTC_CRH_OFFSET:
             s->RTC_CR[1]=value & 0xffff;
-           break;
+            break;
         case RTC_CRL_OFFSET:
             /*software can only clear 
              (RSF OWF ALRF SECF) bit,  
@@ -264,54 +249,45 @@ static void stm32_rtc_write(void *opaque, hwaddr offset,
             s->RTC_CR[0]&=(value & 0xf) ; 
              /* write CNF bit */
             s->RTC_CR[0]|=(value & 0x10); 
-           break;
+            break;
         case RTC_PRLH_OFFSET:
             s->RTC_PRL[1]=value & 0x000f;
              /* update prescaler if it's changed */
-            if(s->prescaler^(((s->RTC_PRL[1]&0x000f)<<16)|
-                           s->RTC_PRL[0])){
-               s->prescaler=((s->RTC_PRL[1]&0x000f)<<16)|
-                           s->RTC_PRL[0];
+            if(s->prescaler^(((s->RTC_PRL[1]&0x000f)<<16)| s->RTC_PRL[0])){
+               s->prescaler=((s->RTC_PRL[1]&0x000f)<<16)| s->RTC_PRL[0];
             }
-            
-           break;
+            break;
         case RTC_PRLL_OFFSET:
             s->RTC_PRL[0]=value & 0xffff;
              /* update prescaler if it's changed */
-            if(s->prescaler^(((s->RTC_PRL[1]&0x000f)<<16)|
-                           s->RTC_PRL[0])){
-               s->prescaler=((s->RTC_PRL[1]&0x000f)<<16)|
-                           s->RTC_PRL[0];
+            if(s->prescaler^(((s->RTC_PRL[1]&0x000f)<<16)| s->RTC_PRL[0])){
+               s->prescaler=((s->RTC_PRL[1]&0x000f)<<16)| s->RTC_PRL[0];
             }
-           break;
+            break;
         case RTC_DIVH_OFFSET:
-            hw_error("attempted to write\
-                      in DIVH registre");
-           break;
+            hw_error("attempted to write in DIVH registre");
+            break;
         case RTC_DIVL_OFFSET:
-            hw_error("attempted to write\
-                      in DIVL registre");
-           break;
+            hw_error("attempted to write in DIVL registre");
+            break;
         case RTC_CNTH_OFFSET:
             s->RTC_CNT[1]=(value & 0xffff);
-           break;
+            break;
         case RTC_CNTL_OFFSET:
             s->RTC_CNT[0]=(value & 0xffff);
-	   break;
+            break;
         case RTC_ALRH_OFFSET:
             s->RTC_ALR[1]=value & 0xffff;
-	   break;
+            break;
         case RTC_ALRL_OFFSET:
-	    s->RTC_ALR[0]=value & 0xffff;
-	   break;
+            s->RTC_ALR[0]=value & 0xffff;
+            break;
         default:
             STM32_BAD_REG(offset, size); 
             return;
     }
-
     /* set RTOFF bit for mark end of write operation */
     s->RTC_CR[0]|= (1 << RTC_CRL_RTOFF_BIT); 
-
 }
 
 static const MemoryRegionOps stm32_rtc_ops = {
@@ -377,10 +353,9 @@ static void stm32_rtc_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     //SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
-
     //k->init = stm32_rtc_init;
-    //来自qemu_stm32的过时代码
     //dc->reset = stm32_rtc_reset;
+
     device_class_set_legacy_reset( dc,stm32_rtc_reset);
     dc->realize = stm32_rtc_realize;
     //dc->props = stm32_rtc_properties;

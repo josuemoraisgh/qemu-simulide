@@ -132,7 +132,8 @@ struct Stm32Uart {
 /* HELPER FUNCTIONS */
 
 /* Update the baud rate based on the USART's peripheral clock frequency. */
-static void stm32_uart_baud_update(Stm32Uart *s) {
+static void stm32_uart_baud_update(Stm32Uart *s)
+{
   uint32_t clk_freq = stm32_rcc_get_periph_freq(s->stm32_rcc, s->periph);
   uint64_t ns_per_bit;
 
@@ -158,21 +159,21 @@ static void stm32_uart_baud_update(Stm32Uart *s) {
 }
 
 /* Handle a change in the peripheral clock. */
-static void stm32_uart_clk_irq_handler(void *opaque, int n, int level) {
+static void stm32_uart_clk_irq_handler(void *opaque, int n, int level)
+{
   Stm32Uart *s = (Stm32Uart *)opaque;
 
   assert(n == 0);
 
   /* Only update the BAUD rate if the IRQ is being set. */
-  if (level) {
-    stm32_uart_baud_update(s);
-  }
+  if (level) stm32_uart_baud_update(s);
 }
 
 /* Routine which updates the USART's IRQ.  This should be called whenever
  * an interrupt-related flag is updated.
  */
-static void stm32_uart_update_irq(Stm32Uart *s) {
+static void stm32_uart_update_irq(Stm32Uart *s)
+{
   /* Note that we are not checking the ORE flag, but we should be. */
   int new_irq_level =
       (s->USART_CR1_TCIE & s->USART_SR_TC) |
@@ -191,7 +192,8 @@ static void stm32_uart_update_irq(Stm32Uart *s) {
 static void stm32_uart_start_tx(Stm32Uart *s, uint32_t value);
 
 /* Routine to be called when a transmit is complete. */
-static void stm32_uart_tx_complete(Stm32Uart *s) {
+static void stm32_uart_tx_complete(Stm32Uart *s)
+{
   if (s->USART_SR_TXE == 1) {
     /* If the buffer is empty, there is nothing waiting to be transmitted.
      * Mark the transmit complete. */
@@ -238,11 +240,13 @@ static void stm32_uart_start_tx(Stm32Uart *s, uint32_t value)
 /* Checks the USART transmit pin's GPIO settings.  If the GPIO is not configured
  * properly, a hardware error is triggered.
  */
-static void stm32_uart_check_tx_pin(Stm32Uart *s) {
+static void stm32_uart_check_tx_pin(Stm32Uart *s)
+{
   int tx_periph, tx_pin;
   int config;
 
-  switch (s->periph) {
+  switch (s->periph)
+  {
   case STM32_UART1:
     switch (stm32_afio_get_periph_map(s->stm32_afio, s->periph)) {
     case STM32_USART1_NO_REMAP:
@@ -317,7 +321,8 @@ static void stm32_uart_check_tx_pin(Stm32Uart *s) {
  * This will allow it to receive the next character.  The current character was
  * already received before starting the delay.
  */
-static void stm32_uart_rx_timer_expire(void *opaque) {
+static void stm32_uart_rx_timer_expire(void *opaque)
+{
   Stm32Uart *s = (Stm32Uart *)opaque;
 
   s->receiving = false;
@@ -328,14 +333,16 @@ static void stm32_uart_rx_timer_expire(void *opaque) {
 
 /* When the transmit delay is complete, mark the transmit as complete
  * (the character was already sent before starting the delay). */
-static void stm32_uart_tx_timer_expire(void *opaque) {
+static void stm32_uart_tx_timer_expire(void *opaque)
+{
   Stm32Uart *s = (Stm32Uart *)opaque;
 
   stm32_uart_tx_complete(s);
 }
 
 /* DMA tx delay */
-static void stm32_uart_tx_dma_timer_expire(void *opaque) {
+static void stm32_uart_tx_dma_timer_expire(void *opaque)
+{
     Stm32Uart *s = (Stm32Uart *)opaque;
     uint64_t curr_time = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
 
@@ -355,7 +362,8 @@ int stm32_uart_can_receive(void *opaque);
 void stm32_uart_receive(void *opaque, const uint8_t *buf, int size);
 uint32_t stm32_uart_baud_rate(void *opaque);
 
-int stm32_uart_can_receive(void *opaque) {
+int stm32_uart_can_receive(void *opaque)
+{
   Stm32Uart *s = (Stm32Uart *)opaque;
 
   if (s->USART_CR1_UE && s->USART_CR1_RE) {
@@ -390,17 +398,20 @@ int stm32_uart_can_receive(void *opaque) {
   }
 }
 
-static void stm32_uart_event(void *opaque, QEMUChrEvent event) {
+static void stm32_uart_event(void *opaque, QEMUChrEvent event)
+{
   /* Do nothing */
 }
 
-uint32_t stm32_uart_baud_rate(void *opaque) {
+uint32_t stm32_uart_baud_rate(void *opaque)
+{
   Stm32Uart *s = (Stm32Uart *)opaque;
   return s->bits_per_sec;
 }
 
 
-void stm32_uart_receive(void *opaque, const uint8_t *buf, int size) {
+void stm32_uart_receive(void *opaque, const uint8_t *buf, int size)
+{
   Stm32Uart *s = (Stm32Uart *)opaque;
   uint64_t curr_time = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
 
@@ -444,7 +455,8 @@ void stm32_uart_receive(void *opaque, const uint8_t *buf, int size) {
 
 /* REGISTER IMPLEMENTATION */
 
-static uint32_t stm32_uart_USART_SR_read(Stm32Uart *s) {
+static uint32_t stm32_uart_USART_SR_read(Stm32Uart *s)
+{
   /* If the Overflow flag is set, reading the SR register is the first step
    * to resetting the flag.
    */
@@ -458,7 +470,8 @@ static uint32_t stm32_uart_USART_SR_read(Stm32Uart *s) {
          (s->USART_SR_ORE << USART_SR_ORE_BIT);
 }
 
-static void stm32_uart_USART_SR_write(Stm32Uart *s, uint32_t new_value) {
+static void stm32_uart_USART_SR_write(Stm32Uart *s, uint32_t new_value)
+{
   uint32_t new_TC, new_RXNE;
 
   new_TC = extract32(new_value, USART_SR_TC_BIT, 1);
@@ -478,7 +491,8 @@ static void stm32_uart_USART_SR_write(Stm32Uart *s, uint32_t new_value) {
   stm32_uart_update_irq(s);
 }
 
-static void stm32_uart_USART_DR_read(Stm32Uart *s, uint32_t *read_value) {
+static void stm32_uart_USART_DR_read(Stm32Uart *s, uint32_t *read_value)
+{
   /* If the Overflow flag is set, then it should be cleared if the software
    * performs an SR read followed by a DR read.
    */
@@ -510,7 +524,8 @@ static void stm32_uart_USART_DR_read(Stm32Uart *s, uint32_t *read_value) {
   stm32_uart_update_irq(s);
 }
 
-static void stm32_uart_USART_DR_write(Stm32Uart *s, uint32_t new_value) {
+static void stm32_uart_USART_DR_write(Stm32Uart *s, uint32_t new_value)
+{
   uint32_t write_value = new_value & 0x000001ff;
 
   if (!s->USART_CR1_UE) {
@@ -548,15 +563,15 @@ static void stm32_uart_USART_DR_write(Stm32Uart *s, uint32_t new_value) {
 }
 
 /* Update the Baud Rate Register. */
-static void stm32_uart_USART_BRR_write(Stm32Uart *s, uint32_t new_value,
-                                       bool init) {
+static void stm32_uart_USART_BRR_write(Stm32Uart *s, uint32_t new_value, bool init)
+{
   s->USART_BRR = new_value & 0x0000ffff;
 
   stm32_uart_baud_update(s);
 }
 
-static void stm32_uart_USART_CR1_write(Stm32Uart *s, uint32_t new_value,
-                                       bool init) {
+static void stm32_uart_USART_CR1_write(Stm32Uart *s, uint32_t new_value, bool init)
+{
   s->USART_CR1_UE = extract32(new_value, USART_CR1_UE_BIT, 1);
   if (s->USART_CR1_UE) {
     /* Check to make sure the correct mapping is selected when enabling the
@@ -580,14 +595,13 @@ static void stm32_uart_USART_CR1_write(Stm32Uart *s, uint32_t new_value,
   stm32_uart_update_irq(s);
 }
 
-static void stm32_uart_USART_CR2_write(Stm32Uart *s, uint32_t new_value,
-                                       bool init) {
+static void stm32_uart_USART_CR2_write(Stm32Uart *s, uint32_t new_value, bool init)
+{
   s->USART_CR2 = new_value & 0x00007f7f;
 }
 
-static void stm32_uart_USART_CR3_write(Stm32Uart *s, uint32_t new_value,
-                                       bool init) {
-
+static void stm32_uart_USART_CR3_write(Stm32Uart *s, uint32_t new_value, bool init)
+{
   s->USART_CR3 = new_value & 0x000007ff;
 
   if (s->USART_CR3 & USART_CR3_DMAT_BIT) {
@@ -600,7 +614,8 @@ static void stm32_uart_USART_CR3_write(Stm32Uart *s, uint32_t new_value,
   }
 }
 
-static void stm32_uart_reset(DeviceState *dev) {
+static void stm32_uart_reset(DeviceState *dev)
+{
   Stm32Uart *s = STM32_UART(dev);
 
   /* Initialize the status registers.  These are mostly
@@ -622,7 +637,8 @@ static void stm32_uart_reset(DeviceState *dev) {
   stm32_uart_update_irq(s);
 }
 
-static uint64_t stm32_uart_read(void *opaque, hwaddr offset, unsigned size) {
+static uint64_t stm32_uart_read(void *opaque, hwaddr offset, unsigned size)
+{
   Stm32Uart *s = (Stm32Uart *)opaque;
   uint32_t value;
   int start = (offset & 3) * 8;
@@ -733,10 +749,9 @@ static void stm32_uart_init(Object *obj) {
 
   sysbus_init_irq(dev, &s->irq);
 
-  s->rx_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
-                             (QEMUTimerCB *)stm32_uart_rx_timer_expire, s);
-  s->tx_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
-                             (QEMUTimerCB *)stm32_uart_tx_timer_expire, s);
+  s->rx_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, (QEMUTimerCB *)stm32_uart_rx_timer_expire, s);
+  s->tx_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, (QEMUTimerCB *)stm32_uart_tx_timer_expire, s);
+
 #ifndef STM32_UART_NO_BAUD_DELAY
   s->tx_dma_timer = timer_new_ns(
       QEMU_CLOCK_VIRTUAL, (QEMUTimerCB *)stm32_uart_tx_dma_timer_expire, s);
@@ -791,7 +806,7 @@ static void stm32_uart_class_init(ObjectClass *klass, void *data) {
 
   // k->init = stm32_uart_init;
   dc->realize = stm32_uart_realize;
-  //来自qemu_stm32的过时代码
+
   //dc->reset = stm32_uart_reset;
   device_class_set_legacy_reset( dc,stm32_uart_reset);
   // dc->props = stm32_uart_properties;

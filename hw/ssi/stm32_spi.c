@@ -27,27 +27,27 @@
 #include "hw/arm/stm32.h"
 #include "hw/ssi/ssi.h"
 
-#define	R_CR1             (0x00 / 4)
-#define	R_CR1_DFF      (1 << 11)
-#define	R_CR1_LSBFIRST (1 <<  7)
-#define	R_CR1_SPE      (1 <<  6)
-#define	R_CR2             (0x04 / 4)
+#define    R_CR1             (0x00 / 4)
+#define    R_CR1_DFF      (1 << 11)
+#define    R_CR1_LSBFIRST (1 <<  7)
+#define    R_CR1_SPE      (1 <<  6)
+#define    R_CR2             (0x04 / 4)
 
-#define	R_SR       (0x08 / 4)
-#define	R_SR_RESET    0x0002
-#define	R_SR_MASK     0x01FF
+#define    R_SR       (0x08 / 4)
+#define    R_SR_RESET    0x0002
+#define    R_SR_MASK     0x01FF
 #define R_SR_OVR     (1 << 6)
 #define R_SR_TXE     (1 << 1)
 #define R_SR_RXNE    (1 << 0)
 
-#define	R_DR       (0x0C / 4)
-#define	R_CRCPR    (0x10 / 4)
-#define	R_CRCPR_RESET 0x0007
-#define	R_RXCRCR   (0x14 / 4)
-#define	R_TXCRCR   (0x18 / 4)
-#define	R_I2SCFGR  (0x1C / 4)
-#define	R_I2SPR    (0x20 / 4)
-#define	R_I2SPR_RESET 0x0002
+#define    R_DR       (0x0C / 4)
+#define    R_CRCPR    (0x10 / 4)
+#define    R_CRCPR_RESET 0x0007
+#define    R_RXCRCR   (0x14 / 4)
+#define    R_TXCRCR   (0x18 / 4)
+#define    R_I2SCFGR  (0x1C / 4)
+#define    R_I2SPR    (0x20 / 4)
+#define    R_I2SPR_RESET 0x0002
 #define R_MAX      (0x24 / 4)
 
 typedef struct stm32_spi_state {
@@ -64,8 +64,7 @@ typedef struct stm32_spi_state {
     uint16_t regs[R_MAX];
 } stm32_spi_state;
 
-static uint64_t
-stm32_spi_read(void *arg, hwaddr offset, unsigned size)
+static uint64_t stm32_spi_read(void *arg, hwaddr offset, unsigned size)
 {
     stm32_spi_state *s = arg;
     uint16_t r = UINT16_MAX;
@@ -86,14 +85,12 @@ stm32_spi_read(void *arg, hwaddr offset, unsigned size)
     return r;
 }
 
-static uint8_t
-bitswap(uint8_t val)
+static uint8_t bitswap(uint8_t val)
 {
     return ((val * 0x0802LU & 0x22110LU) | (val * 0x8020LU & 0x88440LU)) * 0x10101LU >> 16;
 }
 
-static void
-stm32_spi_write(void *arg, hwaddr addr, uint64_t data, unsigned size)
+static void stm32_spi_write(void *arg, hwaddr addr, uint64_t data, unsigned size)
 {
     struct stm32_spi_state *s = (struct stm32_spi_state *)arg;
     int offset = addr & 0x3;
@@ -152,8 +149,7 @@ static const MemoryRegionOps stm32_spi_ops = {
     .endianness = DEVICE_NATIVE_ENDIAN
 };
 
-static void
-stm32_spi_reset(DeviceState *dev)
+static void stm32_spi_reset(DeviceState *dev)
 {
     struct stm32_spi_state *s = STM32_SPI(dev);
 
@@ -168,8 +164,7 @@ stm32_spi_reset(DeviceState *dev)
     }
 }
 
-static void
-stm32_spi_init(Object *obj)
+static void stm32_spi_init(Object *obj)
 {
     struct stm32_spi_state *s = STM32_SPI(obj);
 
@@ -187,12 +182,10 @@ static Property stm32_spi_properties[] = {
     DEFINE_PROP_END_OF_LIST()
 };
 
-static void
-stm32_spi_class_init(ObjectClass *klass, void *data)
+static void stm32_spi_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
-    
-    //来自qemu_stm32的过时代码
+
     //dc->reset = stm32_spi_reset;
     device_class_set_legacy_reset( dc,stm32_spi_reset);
     device_class_set_props(dc, stm32_spi_properties);

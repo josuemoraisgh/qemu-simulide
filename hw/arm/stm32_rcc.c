@@ -232,11 +232,11 @@
 #define RCC_BDCR_LSEON_BIT 0
 
 #define RCC_CSR_OFFSET 0x24
-#define RCC_CSR_LPWRRSTF_BIT	31
-#define RCC_CSR_WWDGRSTF_BIT	30
-#define RCC_CSR_IWDGRSTF_BIT	29
-#define RCC_CSR_LSIRDY_BIT 	1
-#define RCC_CSR_LSION_BIT 	0
+#define RCC_CSR_LPWRRSTF_BIT    31
+#define RCC_CSR_WWDGRSTF_BIT    30
+#define RCC_CSR_IWDGRSTF_BIT    29
+#define RCC_CSR_LSIRDY_BIT     1
+#define RCC_CSR_LSION_BIT     0
 
 #define RCC_AHBRSTR 0x28
 
@@ -293,9 +293,9 @@ struct Stm32Rcc {
 
     /* Bit CSR register values */
     bool
-	RCC_CSR_LPWRRSTFb,
-	RCC_CSR_WWDGRSTFb,
-	RCC_CSR_IWDGRSTFb;
+    RCC_CSR_LPWRRSTFb,
+    RCC_CSR_WWDGRSTFb,
+    RCC_CSR_IWDGRSTFb;
 
     Clk
         HSICLK,
@@ -600,7 +600,7 @@ static uint32_t stm32_rcc_RCC_CSR_read(Stm32Rcc *s)
 
     return lseon_bit << RCC_CSR_LSIRDY_BIT |
            lseon_bit << RCC_CSR_LSION_BIT |
-	   iwdg_flag << RCC_CSR_IWDGRSTF_BIT;
+       iwdg_flag << RCC_CSR_IWDGRSTF_BIT;
 }
 
 /* Works the same way as stm32_rcc_RCC_CR_write */
@@ -649,9 +649,7 @@ static uint64_t stm32_rcc_readw(void *opaque, hwaddr offset)
     return 0;
 }
 
-
-static void stm32_rcc_writew(void *opaque, hwaddr offset,
-                          uint64_t value)
+static void stm32_rcc_writew(void *opaque, hwaddr offset, uint64_t value)
 {
     Stm32Rcc *s = (Stm32Rcc *)opaque;
 
@@ -710,8 +708,7 @@ static uint64_t stm32_rcc_read(void *opaque, hwaddr offset,
     }
 }
 
-static void stm32_rcc_write(void *opaque, hwaddr offset,
-                       uint64_t value, unsigned size)
+static void stm32_rcc_write(void *opaque, hwaddr offset, uint64_t value, unsigned size)
 {
     switch(size) {
         case 4:
@@ -774,12 +771,6 @@ static void stm32_rcc_hclk_upd_irq_handler(void *opaque, int n, int level)
 #endif
 }
 
-
-
-
-
-
-
 /* PUBLIC FUNCTIONS */
 
 void stm32_rcc_check_periph_clk(Stm32Rcc *s, stm32_periph_t periph)
@@ -798,23 +789,16 @@ void stm32_rcc_check_periph_clk(Stm32Rcc *s, stm32_periph_t periph)
     }
 }
 
-void stm32_rcc_set_periph_clk_irq(
-        Stm32Rcc *s,
-        stm32_periph_t periph,
-        qemu_irq periph_irq)
+void stm32_rcc_set_periph_clk_irq( Stm32Rcc *s, stm32_periph_t periph, qemu_irq periph_irq)
 {
     Clk clk = s->PERIPHCLK[periph];
     assert(clk != NULL);
     clktree_adduser(clk, periph_irq);
 }
 
-uint32_t stm32_rcc_get_periph_freq(
-        Stm32Rcc *s,
-        stm32_periph_t periph)
+uint32_t stm32_rcc_get_periph_freq( Stm32Rcc *s, stm32_periph_t periph)
 {
-    Clk clk;
-
-    clk = s->PERIPHCLK[periph];
+    Clk clk = s->PERIPHCLK[periph];
 
     assert(clk != NULL);
 
@@ -923,18 +907,12 @@ static void stm32_rcc_init_clk(Stm32Rcc *s)
     s->PERIPHCLK[STM32_DMA1]  = clktree_create_clk("DMA1", 1, 1, false, CLKTREE_NO_MAX_FREQ, 0, s->HCLK, NULL);
 }
 
-
-
-
-
-
 static void stm32_rcc_init(Object *obj)
 {
     SysBusDevice *dev= SYS_BUS_DEVICE(obj);
     Stm32Rcc *s = STM32_RCC(dev);
 
-    memory_region_init_io(&s->iomem, OBJECT(s), &stm32_rcc_ops, s,
-                          "rcc", 0x3FF);
+    memory_region_init_io(&s->iomem, OBJECT(s), &stm32_rcc_ops, s, "rcc", 0x3FF);
 
     sysbus_init_mmio(dev, &s->iomem);
 
@@ -948,8 +926,6 @@ static void stm32_rcc_init(Object *obj)
 static void stm32_rcc_realize(DeviceState *dev, Error **errp)
 {
     Stm32Rcc *s = STM32_RCC(dev);
-    
-    
     stm32_rcc_init_clk(s);
 }
 
@@ -966,7 +942,6 @@ static void stm32_rcc_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
     //SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
 
-    //来自qemu_stm32的过时代码
     //dc->reset = stm32_rcc_reset;
     device_class_set_legacy_reset( dc,stm32_rcc_reset);
     dc->realize = stm32_rcc_realize;

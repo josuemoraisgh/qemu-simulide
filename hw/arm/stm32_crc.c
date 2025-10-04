@@ -214,7 +214,7 @@ stm32_crc_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
     //SysBusDeviceClass *sc = SYS_BUS_DEVICE_CLASS(klass);
     //sc->init = stm32_crc_init;
-    //来自qemu_stm32的过时代码
+
     //dc->reset = stm32_crc_reset;
     device_class_set_legacy_reset( dc,stm32_crc_reset);
     //TODO: fix this: dc->no_user = 1;
