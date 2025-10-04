@@ -75,14 +75,6 @@ uint32_t stm32_uart_baud_rate(void *opaque);
 /* Main SYSCLK frequency in Hz (24MHz) */
 #define SYSCLK_FRQ 24000000ULL
 
-
-#define STM32_TIM_SYNC "stm32_tim_sync"
-
-static void psync_irq_handler( void *opaque, int n, int dir )
-{
-    printf("psync_irq_handler %i %i\n", n, dir ); fflush( stdout );
-}
-
 static void stm32_f103c8_init( MachineState *machine )
 {
    Clock *sysclk;
@@ -135,52 +127,12 @@ static void stm32_f103c8_init( MachineState *machine )
    assert( s->adc1 );
    assert( s->adc2 );
 
-   s->psync_irq = qemu_allocate_irqs( psync_irq_handler, NULL, 5 );
-   //qdev_connect_gpio_out_named( s->gpio_a, STM32_GPIOS_SYNC, 0, s->psync_irq[0] );
-   //qdev_connect_gpio_out_named( s->gpio_b, STM32_GPIOS_SYNC, 0, s->psync_irq[1] );
-   //qdev_connect_gpio_out_named( s->gpio_c, STM32_GPIOS_SYNC, 0, s->psync_irq[2] );
-   //qdev_connect_gpio_out_named( s->gpio_d, STM32_GPIOS_SYNC, 0, s->psync_irq[3] );
-
-   qdev_connect_gpio_out_named( s->tim1, STM32_TIM_SYNC, 0, s->psync_irq[0] );
-   qdev_connect_gpio_out_named( s->tim2, STM32_TIM_SYNC, 0, s->psync_irq[1] );
-   qdev_connect_gpio_out_named( s->tim3, STM32_TIM_SYNC, 0, s->psync_irq[2] );
-   qdev_connect_gpio_out_named( s->tim4, STM32_TIM_SYNC, 0, s->psync_irq[3] );
-   qdev_connect_gpio_out_named( s->tim5, STM32_TIM_SYNC, 0, s->psync_irq[4] );
-
-   //if (pinmap)
-   //{
-   //   s->pdir_irq = qemu_allocate_irqs(pdir_irq_handler, NULL, pinmap[0] + 1);
-   //   s->pout_irq = qemu_allocate_irqs(pout_irq_handler, NULL, pinmap[0] + 1);
-   //   for (int pin = 1; pin < (pinmap[0] + 1); pin++)
-   //   {
-   //      if (pinmap[pin] >= 0)
-   //      {
-   //         DeviceState *gport = NULL;
-
-   //         switch ((pinmap[pin] & 0xF000) >> 12)
-   //         {
-   //         case 1: gport = s->gpio_a; break;
-   //         case 2: gport = s->gpio_b; break;
-   //         case 3: gport = s->gpio_c; break;
-   //         case 4: gport = s->gpio_d; break;
-   //         }
-
-   //         if (gport)
-   //         {
-   //            qdev_connect_gpio_out(gport, pinmap[pin] & 0x0FFF, s->pout_irq[pin]);
-   //            qdev_connect_gpio_out_named(gport, STM32_GPIOS_DIR, pinmap[pin] & 0x0FFF, s->pdir_irq[pin]);
-   //            s->pin_irq[pin] = qdev_get_gpio_in(gport, pinmap[pin] & 0x0FFF);
-   //         }
-   //      }
-   //   }
-   //}
-
    /* Connect RS232 to UART 1 */
-   stm32_uart_connect( (Stm32Uart *)s->uart1, serial_hd(0), STM32_USART1_NO_REMAP );
+   stm32_uart_connect( (Stm32Uart *)s->uart1, serial_hd(0), 0 );
 
    /* These additional UARTs have not been tested yet... */
-   stm32_uart_connect( (Stm32Uart *)s->uart2, serial_hd(1), STM32_USART2_NO_REMAP );
-   stm32_uart_connect( (Stm32Uart *)s->uart3, serial_hd(2), STM32_USART3_NO_REMAP );
+   stm32_uart_connect( (Stm32Uart *)s->uart2, serial_hd(1), 0 );
+   stm32_uart_connect( (Stm32Uart *)s->uart3, serial_hd(2), 0 );
 
    DeviceState *i2c_master1 = DEVICE(s->i2c1);
    I2CBus *i2c_bus1 = I2C_BUS( qdev_get_child_bus(i2c_master1, "i2c") );

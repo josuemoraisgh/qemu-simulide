@@ -750,33 +750,6 @@ static void stm32_adc_conv_timer_expire_cont( void *opaque ) //Continuous
     //timer_mod(s->conv_timer_cont,  curr_time + ( 20 * (1e3)) );
 }
 
-/* Checks the ADC GPIO PIN Mode and Config */
-//static void stm32_ADC_GPIO_check( Stm32Adc *s,int channel )
-//{
-//    int ADC_periph,ADC_pin,config;
-//    if( channel > 15 ) return;     // Channel number not valid
-//
-//    if(channel<=15 && channel>=10){
-//        ADC_periph=STM32_GPIOC;
-//        ADC_pin=channel-10; //PC(0-5) IN10-IN15
-//    }
-//    else if(channel==9 || channel==8){
-//        ADC_periph=STM32_GPIOB;
-//        ADC_pin=channel-8; //PB(0-1) IN8-IN9
-//    }
-//    else{
-//        ADC_periph=STM32_GPIOA;
-//        ADC_pin=channel; //PA(0-7) IN0-IN7
-//    }
-//    Stm32Gpio *gpio_dev = s->stm32_gpio[STM32_GPIO_INDEX_FROM_PERIPH(ADC_periph)];
-//    if(stm32_gpio_get_mode_bits(gpio_dev, ADC_pin) != STM32_GPIO_MODE_IN) {
-//        hw_error("GPIO%c pin:%d needs to be configured as input",'A'+ADC_periph-1,ADC_pin);
-//    }
-//    config = stm32_gpio_get_config_bits(gpio_dev, ADC_pin);
-//    if(config != STM32_GPIO_IN_ANALOG)
-//        hw_error("GPIO%c pin:%d needs to be configured as Analog input",'A'+ADC_periph-1,ADC_pin);
-//}
-
 static uint8_t stm32_ADC_get_channel_number( Stm32Adc* s, uint8_t n )
 {
     assert( n >= 1 && n <= 16 );

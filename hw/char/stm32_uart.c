@@ -195,14 +195,12 @@ static void stm32_uart_start_tx(Stm32Uart *s, uint32_t value);
 static void stm32_uart_tx_complete(Stm32Uart *s)
 {
   if (s->USART_SR_TXE == 1) {
-    /* If the buffer is empty, there is nothing waiting to be transmitted.
-     * Mark the transmit complete. */
+    /* If the buffer is empty, there is nothing waiting to be transmitted. Mark the transmit complete. */
     s->USART_SR_TC = 1;
     stm32_uart_update_irq(s);
   } else {
-    /* Otherwise, mark the transmit buffer as empty and
-     * start transmitting the value stored there.
-     */
+    // Otherwise, mark the transmit buffer as empty and start transmitting the value stored there.
+
     s->USART_SR_TXE = 1;
     stm32_uart_update_irq(s);
     stm32_uart_start_tx(s, s->USART_TDR);
@@ -211,14 +209,12 @@ static void stm32_uart_tx_complete(Stm32Uart *s)
 
 
 /* Start transmitting a character. */
-static void stm32_uart_start_tx(Stm32Uart *s, uint32_t value)
+static void stm32_uart_start_tx( Stm32Uart *s, uint32_t value )
 {
   uint64_t curr_time = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
   uint8_t ch = value; // This will truncate the ninth bit
 
-  /* Reset the Transmission Complete flag to indicate a transmit is in
-   * progress.
-   */
+  // Reset the Transmission Complete flag to indicate a transmit is in progress.
   s->USART_SR_TC = 0;
 
   /* Write the character out. */
@@ -240,81 +236,70 @@ static void stm32_uart_start_tx(Stm32Uart *s, uint32_t value)
 /* Checks the USART transmit pin's GPIO settings.  If the GPIO is not configured
  * properly, a hardware error is triggered.
  */
-static void stm32_uart_check_tx_pin(Stm32Uart *s)
-{
-  int tx_periph, tx_pin;
-  int config;
-
-  switch (s->periph)
-  {
-  case STM32_UART1:
-    switch (stm32_afio_get_periph_map(s->stm32_afio, s->periph)) {
-    case STM32_USART1_NO_REMAP:
-      tx_periph = STM32_GPIOA;
-      tx_pin = 9;
-      break;
-    case STM32_USART1_REMAP:
-      tx_periph = STM32_GPIOB;
-      tx_pin = 6;
-      break;
-    default:
-      assert(false);
-      break;
-    }
-    break;
-  case STM32_UART2:
-    switch (stm32_afio_get_periph_map(s->stm32_afio, s->periph)) {
-    case STM32_USART2_NO_REMAP:
-      tx_periph = STM32_GPIOA;
-      tx_pin = 2;
-      break;
-    case STM32_USART2_REMAP:
-      tx_periph = STM32_GPIOD;
-      tx_pin = 5;
-      break;
-    default:
-      assert(false);
-      break;
-    }
-    break;
-  case STM32_UART3:
-    switch (stm32_afio_get_periph_map(s->stm32_afio, s->periph)) {
-    case STM32_USART3_NO_REMAP:
-      tx_periph = STM32_GPIOB;
-      tx_pin = 10;
-      break;
-    case STM32_USART3_PARTIAL_REMAP:
-      tx_periph = STM32_GPIOC;
-      tx_pin = 10;
-      break;
-    case STM32_USART3_FULL_REMAP:
-      tx_periph = STM32_GPIOD;
-      tx_pin = 8;
-      break;
-    default:
-      assert(false);
-      break;
-    }
-    break;
-  default:
-    assert(false);
-    break;
-  }
-
-  Stm32Gpio *gpio_dev = s->stm32_gpio[STM32_GPIO_INDEX_FROM_PERIPH(tx_periph)];
-
-      /// TODO:
-  //if (stm32_gpio_get_mode_bits(gpio_dev, tx_pin) == STM32_GPIO_MODE_IN) {
-  //  hw_error("UART TX pin needs to be configured as output");
-  //}
-
-  // config = stm32_gpio_get_config_bits(gpio_dev, tx_pin);
-  // if ((config != STM32_GPIO_OUT_ALT_PUSHPULL) &&
-  //     (config != STM32_GPIO_OUT_ALT_OPEN)) {
-  //   hw_error("UART TX pin needs to be configured as "
-  //            "alternate function output");
-  // }
-}
+/// Does nothing ????
+//static void stm32_uart_check_tx_pin(Stm32Uart *s)
+//{
+//  int tx_periph, tx_pin;
+//  int config;
+//
+//  switch (s->periph)
+//  {
+//  case STM32_UART1:
+//    switch (stm32_afio_get_periph_map(s->stm32_afio, s->periph)) {
+//    case STM32_USART1_NO_REMAP:
+//      tx_periph = STM32_GPIOA;
+//      tx_pin = 9;
+//      break;
+//    case STM32_USART1_REMAP:
+//      tx_periph = STM32_GPIOB;
+//      tx_pin = 6;
+//      break;
+//    default:
+//      assert(false);
+//      break;
+//    }
+//    break;
+//  case STM32_UART2:
+//    switch (stm32_afio_get_periph_map(s->stm32_afio, s->periph)) {
+//    case STM32_USART2_NO_REMAP:
+//      tx_periph = STM32_GPIOA;
+//      tx_pin = 2;
+//      break;
+//    case STM32_USART2_REMAP:
+//      tx_periph = STM32_GPIOD;
+//      tx_pin = 5;
+//      break;
+//    default:
+//      assert(false);
+//      break;
+//    }
+//    break;
+//  case STM32_UART3:
+//    switch (stm32_afio_get_periph_map(s->stm32_afio, s->periph)) {
+//    case STM32_USART3_NO_REMAP:
+//      tx_periph = STM32_GPIOB;
+//      tx_pin = 10;
+//      break;
+//    case STM32_USART3_PARTIAL_REMAP:
+//      tx_periph = STM32_GPIOC;
+//      tx_pin = 10;
+//      break;
+//    case STM32_USART3_FULL_REMAP:
+//      tx_periph = STM32_GPIOD;
+//      tx_pin = 8;
+//      break;
+//    default:
+//      assert(false);
+//      break;
+//    }
+//    break;
+//  default:
+//    assert(false);
+//    break;
+//  }
+//
+//  Stm32Gpio *gpio_dev = s->stm32_gpio[STM32_GPIO_INDEX_FROM_PERIPH(tx_periph)];
+//}
 
 /* TIMER HANDLERS */
 /* Once the receive delay is finished, indicate the USART is finished receiving.
@@ -507,8 +492,7 @@ static void stm32_uart_USART_DR_read(Stm32Uart *s, uint32_t *read_value)
   }
 
   if (!s->USART_CR1_RE) {
-    hw_error("Attempted to read from USART_DR while UART receiver "
-             "was disabled.");
+    hw_error("Attempted to read from USART_DR while UART receiver was disabled.");
   }
 
   if (s->USART_SR_RXNE) {
@@ -533,11 +517,10 @@ static void stm32_uart_USART_DR_write(Stm32Uart *s, uint32_t new_value)
   }
 
   if (!s->USART_CR1_TE) {
-    hw_error("Attempted to write to USART_DR while UART transmitter "
-             "was disabled.");
+    hw_error("Attempted to write to USART_DR while UART transmitter was disabled.");
   }
 
-  stm32_uart_check_tx_pin(s);
+  // stm32_uart_check_tx_pin(s);
 
   if (s->USART_SR_TC) {
     /* If the Transmission Complete bit is set, it means the USART is not

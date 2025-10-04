@@ -116,7 +116,6 @@ struct Stm32Dac {
     struct QEMUTimer *CONV2_timer;
     struct QEMUTimer *LFSR_timer;
 
-
     bool inc_cnt1;
     bool inc_cnt2;
     int Vref; //mv
@@ -198,14 +197,11 @@ static void stm32_dac_load_DOR1_registre(void *opaque)
       MAMP1=extract32(s->DAC_CR,DAC_CR_MAMP1_START,4); 
       MAMP1= (MAMP1>11) ? 11 :MAMP1;
 
-      /* Triangular generation 
-         check (WAVE1=1x) */
+      /* Triangular generation check (WAVE1=1x) */
       if(WAVE1>1)
       {
         s->DAC_DOR1+=s->TRI_CNT1;
-        /*internal triangular counter 1 
-       is incremented three APB1 clock 
-       cycles after each trigger event*/
+        /*internal triangular counter 1 is incremented three APB1 clock cycles after each trigger event*/
         timer_mod(s->TRI_CNT1_timer, curr_time + 3*s->ns_per_cycle);
       }
       /* noise generation */
@@ -214,22 +210,16 @@ static void stm32_dac_load_DOR1_registre(void *opaque)
         /* MASK for LFSR */
         MASK_LFSR= (1 << (MAMP1+1))-1;
         s->DAC_DOR1+=(s->LFSR_VALUE & MASK_LFSR);  
-        /* LFSR registre is updated three APB1
-          clock cycles after each trigger event */
+        /* LFSR registre is updated three APB1 clock cycles after each trigger event */
         timer_mod(s->LFSR_timer, curr_time + 3*s->ns_per_cycle);       
       }   
-        /* clear SWTRIG1 ==>
-         software triger1 disabled */
+        /* clear SWTRIG1 ==> software triger1 disabled */
       s->DAC_SWTRIGR= (s->DAC_SWTRIGR & (~DAC_SWTRIGR1_MASK));        
-   }  
-
-   /* When DAC_DOR1 is loaded with the DAC_DHR1 
-      contents,the analog output voltage 
-      becomes available after a time of 
-      t SETTLING,generaly equal three cycles */
+   }
+   /* When DAC_DOR1 is loaded with the DAC_DHR1 contents,the analog output voltage
+      becomes available after a time of t SETTLING,generaly equal three cycles */
 
    timer_mod(s->CONV1_timer, curr_time + 3*s->ns_per_cycle);
- 
 }
 
 static void stm32_dac_load_DOR2_registre(void *opaque) 
@@ -245,14 +235,11 @@ static void stm32_dac_load_DOR2_registre(void *opaque)
       WAVE2=extract32(s->DAC_CR,DAC_CR_WAVE2_START,2);
       MAMP2=extract32(s->DAC_CR,DAC_CR_MAMP2_START,4);
       MAMP2= (MAMP2>11) ? 11 :MAMP2;
-      /* Triangular generation 
-         check (WAVE2=1x) */
+      /* Triangular generation check (WAVE2=1x) */
       if(WAVE2>1)
       {
        s->DAC_DOR2+=s->TRI_CNT2;
-       /*internal triangular counter 2 
-       is incremented three APB1 clock 
-       cycles after each trigger event*/
+       /*internal triangular counter 2 is incremented three APB1 clock cycles after each trigger event*/
        timer_mod(s->TRI_CNT2_timer, curr_time + 3*s->ns_per_cycle);
       }
       
@@ -262,19 +249,15 @@ static void stm32_dac_load_DOR2_registre(void *opaque)
        /* MASK for LFSR */
         MASK_LFSR= (1 << (MAMP2+1))-1;
         s->DAC_DOR2+=(s->LFSR_VALUE & MASK_LFSR);
-       /*LFSR registre is updated three APB1 
-       clock cycles after each trigger event*/
+       /*LFSR registre is updated three APB1 clock cycles after each trigger event*/
         timer_mod(s->LFSR_timer, curr_time + 3*s->ns_per_cycle);
       }  
        /* clear SWTRIG2 ==>
        software triger2 disabled */
        s->DAC_SWTRIGR= (s->DAC_SWTRIGR & (~DAC_SWTRIGR2_MASK));          
    }  
-
-       /* When DAC_DORx is loaded with the
-       DAC_DHRx contents,the analog output 
-       voltage becomes available after a time of 
-       t SETTLING,generaly its equal three cycles */
+       /* When DAC_DORx is loaded with the DAC_DHRx contents,the analog output
+       voltage becomes available after a time of  t SETTLING,generaly its equal three cycles */
 
    timer_mod(s->CONV2_timer, curr_time + 3*s->ns_per_cycle);
 }
@@ -282,34 +265,26 @@ static void stm32_dac_load_DOR2_registre(void *opaque)
 
 static void stm32_dac_write_DACC1_DHR(Stm32Dac *s,uint32_t value) 
 {
-
    uint64_t curr_time = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
    s->DACC1_DHR=value;
 
-    /* if DAC channel1 trigger disabled 
-       data written into DACC2_DHR register is 
-       transferred one APB1 clock cycle 
-       later to the DAC_DOR1 register */
+    /* if DAC channel1 trigger disabled data written into DACC2_DHR register is
+       transferred one APB1 clock cycle later to the DAC_DOR1 register */
 
    if(!extract32(s->DAC_CR,DAC_CR_TEN1_BIT,1))
     timer_mod(s->DOR1_timer, curr_time + s->ns_per_cycle);
-    
 }
 
 static void stm32_dac_write_DACC2_DHR(Stm32Dac *s,uint32_t value) 
 {
-
    uint64_t curr_time = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
    s->DACC2_DHR=value;
 
-    /* if DAC channel2 trigger disabled 
-       data written into DACC2_DHR register is 
-       transferred one APB1 clock cycle 
-       later to the DAC_DOR2 register */
+    /* if DAC channel2 trigger disabled data written into DACC2_DHR register is
+       transferred one APB1 clock cycle later to the DAC_DOR2 register */
 
    if(!extract32(s->DAC_CR,DAC_CR_TEN2_BIT,1))
     timer_mod(s->DOR2_timer, curr_time + s->ns_per_cycle);
-   
 }
 
 static void stm32_dac_write_DAC_SWTRIGR(Stm32Dac *s,uint32_t value) 
@@ -317,9 +292,7 @@ static void stm32_dac_write_DAC_SWTRIGR(Stm32Dac *s,uint32_t value)
    uint64_t curr_time = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
    s->DAC_SWTRIGR=(value & 3);
 
-   /* if software trigger x occured 
-      DAC_DORx is loaded after one
-      APB1 clock cycle */
+   /* if software trigger x occured DAC_DORx is loaded after one APB1 clock cycle */
 
    if(value & DAC_SWTRIGR1_MASK)
      timer_mod(s->DOR1_timer, curr_time + s->ns_per_cycle);
@@ -329,22 +302,10 @@ static void stm32_dac_write_DAC_SWTRIGR(Stm32Dac *s,uint32_t value)
    
 }
 
-static void stm32_dac_check_pin(Stm32Dac *s,int pin)
-{
-    //Stm32Gpio *gpio_dev = s->stm32_gpio[STM32_GPIO_INDEX_FROM_PERIPH(STM32_GPIOA)];
-
-    //if(stm32_gpio_get_mode_bits(gpio_dev, pin) != STM32_GPIO_MODE_IN)
-    //   hw_error("GPIOA pin %d needs to be configured as "
-    //              "input",pin);
-    //if(stm32_gpio_get_config_bits(gpio_dev, pin)!= STM32_GPIO_IN_ANALOG)
-    //   hw_error("GPIOA pin %d needs to be configured as "
-    //             "analog input",pin);
-}
-
 static void stm32_dac_conv_DACC1(void *opaque) 
 {
    Stm32Dac *s=(Stm32Dac *)opaque;
-   stm32_dac_check_pin(s,4);
+   //stm32_dac_check_pin(s,4);
 
    // TODO: add a `-device dac` option to qemu which allows qemu's full range of I/O redirection options
    //       just writing to a file *in the current directory* is a quick hack that's not production-ready.
@@ -363,7 +324,7 @@ static void stm32_dac_conv_DACC2(void *opaque)
 {
 
    Stm32Dac *s=(Stm32Dac *)opaque;
-   stm32_dac_check_pin(s,5);
+   //stm32_dac_check_pin(s,5);
 
    // TODO: add a `-device dac` option to qemu which allows qemu's full range of I/O redirection options
    //       just writing to a file *in the current directory* is a quick hack that's not production-ready.

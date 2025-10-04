@@ -48,24 +48,7 @@ void stm32_hw_warn(const char *fmt, ...)
 #define ARRAY_LENGTH(array) (sizeof((array))/sizeof((array)[0]))
 
 /* PERIPHERALS - COMMON */
-/* Indexes used for accessing a GPIO array */
-#define STM32_GPIOA_INDEX 0
-#define STM32_GPIOB_INDEX 1
-#define STM32_GPIOC_INDEX 2
-#define STM32_GPIOD_INDEX 3
-#define STM32_GPIOE_INDEX 4
-#define STM32_GPIOF_INDEX 5
-#define STM32_GPIOG_INDEX 6
 
-/* Indexes used for accessing a UART array */
-#define STM32_UART1_INDEX 0
-#define STM32_UART2_INDEX 1
-#define STM32_UART3_INDEX 2
-#define STM32_UART4_INDEX 3
-#define STM32_UART5_INDEX 4
-
-#define STM32_ADC1_INDEX 0
-#define STM32_ADC2_INDEX 1
 /* Used for uniquely identifying a peripheral */
 typedef int32_t stm32_periph_t;
 
@@ -156,22 +139,12 @@ const char *stm32_periph_name(stm32_periph_t periph);
 #define STM32_GPIO_PERIPH_FROM_INDEX(gpio_index) (STM32_GPIOA + gpio_index)
 
 
-
-
 /* REGISTER HELPERS */
 /* Error handlers */
-# define STM32_BAD_REG(offset, size)       \
-        qemu_log_mask(LOG_GUEST_ERROR, "%s: Bad register 0x%x - size %u\n", __FUNCTION__, (int)offset, size)
-# define STM32_RO_REG(offset)        \
-        qemu_log_mask(LOG_GUEST_ERROR, "%s: Read-only register 0x%x\n", \
-                      __FUNCTION__, (int)offset)
-# define STM32_WO_REG(offset)        \
-        qemu_log_mask(LOG_GUEST_ERROR, "%s: Write-only register 0x%x\n", \
-                      __FUNCTION__, (int)offset)
-# define STM32_NOT_IMPL_REG(offset, size)      \
-        qemu_log_mask(LOG_UNIMP, "%s: Not implemented 0x%x - size %u\n", __FUNCTION__, (int)offset, size)
-
-
+# define STM32_BAD_REG(offset, size)  qemu_log_mask(LOG_GUEST_ERROR, "%s: Bad register 0x%x - size %u\n", __FUNCTION__, (int)offset, size)
+# define STM32_RO_REG(offset)  qemu_log_mask(LOG_GUEST_ERROR, "%s: Read-only register 0x%x\n", __FUNCTION__, (int)offset)
+# define STM32_WO_REG(offset)  qemu_log_mask(LOG_GUEST_ERROR, "%s: Write-only register 0x%x\n", __FUNCTION__, (int)offset)
+# define STM32_NOT_IMPL_REG(offset, size)  qemu_log_mask(LOG_UNIMP, "%s: Not implemented 0x%x - size %u\n", __FUNCTION__, (int)offset, size)
 
 
 /* IRQs */
@@ -246,23 +219,9 @@ const char *stm32_periph_name(stm32_periph_t periph);
 
 typedef struct Stm32Afio Stm32Afio;
 
-/* AFIO Peripheral Mapping */
-#define STM32_USART1_NO_REMAP 0
-#define STM32_USART1_REMAP 1
-
-#define STM32_USART2_NO_REMAP 0
-#define STM32_USART2_REMAP 1
-
-#define STM32_USART3_NO_REMAP 0
-#define STM32_USART3_PARTIAL_REMAP 1
-#define STM32_USART3_FULL_REMAP 3
-
 /* Gets the pin mapping for the specified peripheral.  Will return one
  * of the mapping values defined above. */
 uint32_t stm32_afio_get_periph_map(Stm32Afio *s, int32_t periph_num);
-
-
-
 
 
 /* EXTI */
@@ -270,8 +229,6 @@ typedef struct Stm32Exti Stm32Exti;
 
 #define TYPE_STM32_EXTI "stm32-exti"
 #define STM32_EXTI(obj) OBJECT_CHECK(Stm32Exti, (obj), TYPE_STM32_EXTI)
-
-
 
 
 /* GPIO */
@@ -283,69 +240,31 @@ typedef struct Stm32Gpio Stm32Gpio;
 #define STM32_GPIO_COUNT (STM32_GPIOG - STM32_GPIOA + 1)
 #define STM32_GPIO_PIN_COUNT 16
 
-/* GPIO pin mode */
-#define STM32_GPIO_MODE_IN 0
-#define STM32_GPIO_MODE_OUT_10MHZ 1
-#define STM32_GPIO_MODE_OUT_2MHZ 2
-#define STM32_GPIO_MODE_OUT_50MHZ 3
-uint8_t stm32_gpio_get_mode_bits(Stm32Gpio *s, unsigned pin);
-
-/* GPIO pin config */
-#define STM32_GPIO_IN_ANALOG 0
-#define STM32_GPIO_IN_FLOAT 1
-#define STM32_GPIO_IN_PULLUPDOWN 2
-#define STM32_GPIO_OUT_PUSHPULL 0
-#define STM32_GPIO_OUT_OPENDRAIN 1
-#define STM32_GPIO_OUT_ALT_PUSHPULL 2
-#define STM32_GPIO_OUT_ALT_OPEN 3
-//uint8_t stm32_gpio_get_config_bits(Stm32Gpio *s, unsigned pin);
-
-//uint8_t stm32_gpio_is_analog(Stm32Gpio *s, unsigned pin);
-
-
-
-
-
-
 /* RCC */
 typedef struct Stm32Rcc Stm32Rcc;
 
 #define TYPE_STM32_RCC "stm32-rcc"
 #define STM32_RCC(obj) OBJECT_CHECK(Stm32Rcc, (obj), TYPE_STM32_RCC)
 
-/* Checks if the specified peripheral clock is enabled.
- * Generates a hardware error if not.
- */
+/* Checks if the specified peripheral clock is enabled. Generates a hardware error if not. */
 void stm32_rcc_check_periph_clk(Stm32Rcc *s, stm32_periph_t periph);
 
-/* Sets the IRQ to be called when the specified peripheral clock changes
- * frequency. */
-void stm32_rcc_set_periph_clk_irq(
-        Stm32Rcc *s,
-        stm32_periph_t periph,
-        qemu_irq periph_irq);
+/* Sets the IRQ to be called when the specified peripheral clock changes frequency. */
+void stm32_rcc_set_periph_clk_irq( Stm32Rcc *s, stm32_periph_t periph, qemu_irq periph_irq);
 
 /* Gets the frequency of the specified peripheral clock. */
-uint32_t stm32_rcc_get_periph_freq(
-        Stm32Rcc *s,
-        stm32_periph_t periph);
+uint32_t stm32_rcc_get_periph_freq( Stm32Rcc *s, stm32_periph_t periph);
 
-uint32_t stm32_rcc_get_rtc_freq(
-        Stm32Rcc *s);
+uint32_t stm32_rcc_get_rtc_freq( Stm32Rcc *s );
 
-void stm32_RCC_CSR_write(
-    Stm32Rcc *s,
-    uint32_t new_value,
-    bool init);
+void stm32_RCC_CSR_write( Stm32Rcc *s, uint32_t new_value, bool init);
 
 /* ADC */
-
 #define STM32_ADC_COUNT 2
 
 typedef struct Stm32Adc Stm32Adc;
 
-void stm32_adc_connect(Stm32Adc *s, Chardev *chr,
-                        uint32_t afio_board_map);
+void stm32_adc_connect(Stm32Adc *s, Chardev *chr, uint32_t afio_board_map);
 
 #define TYPE_STM32_ADC "stm32-adc"
 #define STM32_ADC(obj) OBJECT_CHECK(Stm32Adc, (obj), TYPE_STM32_ADC)
@@ -368,13 +287,11 @@ typedef struct Stm32Iwdg Stm32Iwdg;
 
 
 /*RTC*/
-
 typedef struct Stm32Rtc Stm32Rtc;
 #define TYPE_STM32_RTC "stm32-rtc"
 #define STM32_RTC(obj) OBJECT_CHECK(Stm32Rtc, (obj), TYPE_STM32_RTC)
 
 /*DAC*/
-
 typedef struct Stm32Dac Stm32Dac;
 #define TYPE_STM32_DAC "stm32-dac"
 #define STM32_DAC(obj) OBJECT_CHECK(Stm32Dac, (obj), TYPE_STM32_DAC)
@@ -391,8 +308,7 @@ typedef struct Stm32Uart Stm32Uart;
  * board's pin mapping should be passed in.  This will be used to
  * verify the correct mapping is configured by the software.
  */
-void stm32_uart_connect(Stm32Uart *s, Chardev *chr,
-                        uint32_t afio_board_map);
+void stm32_uart_connect(Stm32Uart *s, Chardev *chr, uint32_t afio_board_map);
 
 
 /* Timer */
@@ -485,7 +401,6 @@ void stm32_rcc_set_sysclk(Stm32Rcc* rcc, Clock *sysclk);
 
 #define TYPE_STM32F103_SOC "stm32f103-soc"
 OBJECT_DECLARE_SIMPLE_TYPE(STM32F103State, STM32F103_SOC)
-
 
 
 #endif /* STM32_H */
