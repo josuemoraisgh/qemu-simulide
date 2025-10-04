@@ -303,7 +303,7 @@ printf("STM32 GPIO Write %lu %lu\n", addr, val64 ); fflush( stdout );
 
         printf("STM32 gpio ODR Changed %i %lu\n", state, qemuTime ); fflush( stdout );
 
-        m_arena->action = GPIO_OUT;
+        m_arena->action = ARM_GPIO_OUT;
         m_arena->data32 = state;
         m_arena->time = qemuTime;
         /// ----------------------------------------

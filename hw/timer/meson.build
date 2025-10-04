@@ -29,6 +29,9 @@ system_ss.add(when: 'CONFIG_SSE_COUNTER', if_true: files('sse-counter.c'))
 system_ss.add(when: 'CONFIG_SSE_TIMER', if_true: files('sse-timer.c'))
 system_ss.add(when: 'CONFIG_STELLARIS_GPTM', if_true: files('stellaris-gptm.c'))
 system_ss.add(when: 'CONFIG_STM32F2XX_TIMER', if_true: files('stm32f2xx_timer.c'))
+
+system_ss.add(when: 'CONFIG_STM32F103_SOC', if_true: files('stm32_rtc.c', 'stm32_timer.c'))
+
 system_ss.add(when: 'CONFIG_XILINX', if_true: files('xilinx_timer.c'))
 system_ss.add(when: 'CONFIG_XTENSA_ESP32', if_true: files('esp32_frc_timer.c', 'esp32_timg.c'))
 system_ss.add(when: 'CONFIG_RISCV_ESP32C3', if_true: files(

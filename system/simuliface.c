@@ -62,7 +62,6 @@ bool waitEvent(void)
     return true;
 }
 
-
 static void user_timeout_cb( void* opaque )
 {
     int64_t now = qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL );
@@ -84,7 +83,7 @@ int simuMain( int argc, char** argv )
         argv = &argv[2];
         argc -= 2;
     } else {
-        printf("Error: No arguments provided.\n");
+        printf("Qemu Error: No arguments provided.\n");
         return 1;
     }
 
@@ -94,10 +93,10 @@ int simuMain( int argc, char** argv )
     int shMemId = shm_open( shMemKey, O_RDWR, 0666 ); // Open the shared memory object
     if( shMemId == -1 )
     {
-        printf("Error opening arena: %s\n", shMemKey );
+        printf("Qemu: Error opening arena: %s\n", shMemKey );
         return 1;
     }
-    else printf("arena ok: %s\n", shMemKey );
+    else printf("Qemu: arena ok: %s\n", shMemKey );
     arena = mmap( 0, shMemSize, PROT_READ | PROT_WRITE, MAP_SHARED, shMemId, 0);
 #elif defined(_WIN32)
     HANDLE hMapFile = OpenFileMapping( FILE_MAP_ALL_ACCESS,  FALSE, shMemKey );
@@ -111,10 +110,10 @@ int simuMain( int argc, char** argv )
 
     if( !arena )
     {
-        printf("Error mapping arena\n");
+        printf("Qemu: Error mapping arena\n");
         return 1;
     }
-    else printf("arena mapped %i bytes\n", shMemSize );
+    else printf("Qemu: arena mapped %i bytes\n", shMemSize );
 
     fflush( stdout );
 
@@ -148,8 +147,12 @@ int simuMain( int argc, char** argv )
 
     usleep( 1*1000 );   // Let Simulation fully start running
 
+    printf("Qemu: starting main loop\n");fflush( stdout );
+
     int status = qemu_main_loop();
-    qemu_cleanup(status);
+    qemu_cleanup( status );
+
+    m_arena->state = 0;
 
 #ifdef __linux__
     munmap( arena, shMemSize ); // Un-map shared memory
@@ -157,9 +160,8 @@ int simuMain( int argc, char** argv )
     UnmapViewOfFile( arena );
     CloseHandle( hMapFile );
 #endif
-    m_arena->state = 0;
 
-    printf("QemuDevice: process finished\n");
+    printf("Qemu: process finished\n");fflush( stdout );
 
     return 0;
 }

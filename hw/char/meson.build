@@ -32,6 +32,9 @@ system_ss.add(when: 'CONFIG_SIFIVE_UART', if_true: files('sifive_uart.c'))
 system_ss.add(when: 'CONFIG_SH_SCI', if_true: files('sh_serial.c'))
 system_ss.add(when: 'CONFIG_STM32F2XX_USART', if_true: files('stm32f2xx_usart.c'))
 system_ss.add(when: 'CONFIG_STM32L4X5_USART', if_true: files('stm32l4x5_usart.c'))
+
+system_ss.add(when: 'CONFIG_STM32F103_SOC', if_true: files('stm32_uart.c'))
+
 system_ss.add(when: 'CONFIG_MCHP_PFSOC_MMUART', if_true: files('mchp_pfsoc_mmuart.c'))
 system_ss.add(when: 'CONFIG_XTENSA_ESP32', if_true: files('esp32_uart.c'))
 system_ss.add(when: 'CONFIG_RISCV_ESP32C3', if_true: files('esp32_uart.c', 'esp32c3_uart.c'))

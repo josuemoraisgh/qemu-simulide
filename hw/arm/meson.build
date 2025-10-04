@@ -1,5 +1,19 @@
 arm_ss = ss.source_set()
 arm_ss.add(files('boot.c'))
+
+arm_ss.add(when: 'CONFIG_STM32F103_SOC', if_true: files(
+'stm32_adc.c',
+'stm32_crc.c',
+'stm32_iwdg.c',
+'stm32.c',
+'stm32_dac.c',
+'stm32_rcc.c',
+'stm32_clktree.c',
+'stm32_dma.c',
+'stm32_flash.c',
+'stm32_i2c.c',
+'stm32_f103c8_simul.c'))
+
 arm_ss.add(when: 'CONFIG_ARM_VIRT', if_true: files('virt.c'))
 arm_ss.add(when: 'CONFIG_ACPI', if_true: files('virt-acpi-build.c'))
 arm_ss.add(when: 'CONFIG_DIGIC', if_true: files('digic_boards.c'))

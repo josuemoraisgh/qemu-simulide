@@ -26,14 +26,23 @@ typedef struct qemuArena{
     uint8_t  action;
 } qemuArena_t;
 
-enum actions{
-    GPIO_OUT = 1,
-    GPIO_DIR,
-    GPIO_IN,
-    IOMUX,
-    MATRIX_IN,
-    MATRIX_OUT,
-    I2C,
+enum esp32Actions{
+    ESP_GPIO_OUT = 1,
+    ESP_GPIO_DIR,
+    ESP_GPIO_IN,
+    ESP_IOMUX,
+    ESP_MATRIX_IN,
+    ESP_MATRIX_OUT
+};
+
+enum arm32Actions{
+    ARM_GPIO_OUT = 1,
+    ARM_GPIO_CRx,
+    ARM_GPIO_IN
+};
+
+enum simuAction{
+    SIM_I2C=10
 };
 
 extern volatile qemuArena_t* m_arena;
