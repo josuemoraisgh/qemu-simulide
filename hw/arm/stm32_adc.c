@@ -946,10 +946,10 @@ static void stm32_adc_write(void *opaque, hwaddr offset, uint64_t value, unsigne
     }
 }
 
-void stm32_ADC_update_ns_per_sample(Stm32Adc *s)
+void stm32_ADC_update_ns_per_sample( Stm32Adc *s )
 {
   uint32_t clk_freq = stm32_rcc_get_periph_freq( s->stm32_rcc, s->periph );
-  int i;
+  //int i;
 
   if( !clk_freq ) //fix start timers with period value 0 that freeze qemu
   {

@@ -128,11 +128,11 @@ static void stm32_f103c8_init( MachineState *machine )
    assert( s->adc2 );
 
    /* Connect RS232 to UART 1 */
-   stm32_uart_connect( (Stm32Uart *)s->uart1, serial_hd(0), 0 );
+   stm32_uart_connect( (Stm32Uart *)s->uart1, serial_hd(0)/*, 0*/ );
 
    /* These additional UARTs have not been tested yet... */
-   stm32_uart_connect( (Stm32Uart *)s->uart2, serial_hd(1), 0 );
-   stm32_uart_connect( (Stm32Uart *)s->uart3, serial_hd(2), 0 );
+   stm32_uart_connect( (Stm32Uart *)s->uart2, serial_hd(1)/*, 0*/  );
+   stm32_uart_connect( (Stm32Uart *)s->uart3, serial_hd(2)/*, 0*/  );
 
    DeviceState *i2c_master1 = DEVICE(s->i2c1);
    I2CBus *i2c_bus1 = I2C_BUS( qdev_get_child_bus(i2c_master1, "i2c") );

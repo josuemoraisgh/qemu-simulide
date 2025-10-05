@@ -17,16 +17,16 @@
 
 #include "../system/simuliface.h"
 
-enum i2c_action {
+/*enum i2c_action {
     I2C_START_READ=0,
     I2C_START_WRITE,
     I2C_START_WRITE_ASYNC,
     I2C_STOP,
-    I2C_NOACK, /* Masker NACKed a receive byte.  */
+    I2C_NOACK, // Masker NACKed a receive byte.
     I2C_WRITE,
     I2C_READ,
     I2C_MATCH,
-};
+};*/
 
 static int i2c_id = 0;
 
@@ -62,7 +62,7 @@ static int i2c_iface_tx( I2CSlave *i2c, uint8_t data )
     if( !waitEvent() ) return 0;
 
     m_arena->action = SIM_I2C;
-    m_arena->data32 = I2C_WRITE;
+    m_arena->data32 = SIM_I2C_WRITE;
     m_arena->data16 = i2cI->id;
     m_arena->data8  = data;
     m_arena->time   = qemuTime;
@@ -112,7 +112,7 @@ static bool i2c_iface_match( I2CSlave *candidate, uint8_t address,
     if( !waitEvent() ) return false;
 
     m_arena->action = SIM_I2C;
-    m_arena->data32 = I2C_MATCH;
+    m_arena->data32 = SIM_I2C_MATCH;
     m_arena->data16 = i2cI->id;
     m_arena->data8  = address;
     m_arena->time   = qemuTime;

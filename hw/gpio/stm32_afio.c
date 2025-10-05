@@ -212,18 +212,13 @@ static void stm32_afio_reset(DeviceState *dev)
     stm32_afio_AFIO_EXTICR_write(s, 3, 0x00000000, true);
 }
 
-
-
-
-
-
 /* PUBLIC FUNCTIONS */
 
 uint32_t stm32_afio_get_periph_map(Stm32Afio *s, stm32_periph_t periph)
 {
     return s->Remap[periph];
 }
-    
+
 
 /* DEVICE INITIALIZATION */
 

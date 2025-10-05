@@ -38,11 +38,29 @@ enum esp32Actions{
 enum arm32Actions{
     ARM_GPIO_OUT = 1,
     ARM_GPIO_CRx,
-    ARM_GPIO_IN
+    ARM_GPIO_IN,
 };
 
 enum simuAction{
-    SIM_I2C=10
+    SIM_I2C=10,
+    SIM_USART
+};
+
+enum simuI2c_action {
+    SIM_I2C_START_READ=0,
+    SIM_I2C_START_WRITE,
+    SIM_I2C_START_WRITE_ASYNC,
+    SIM_I2C_STOP,
+    SIM_I2C_NOACK, /* Masker NACKed a receive byte.  */
+    SIM_I2C_WRITE,
+    SIM_I2C_READ,
+    SIM_I2C_MATCH,
+};
+
+enum simuUsart_action {
+    SIM_USART_READ=0,
+    SIM_USART_WRITE,
+    SIM_USART_BAUD
 };
 
 extern volatile qemuArena_t* m_arena;

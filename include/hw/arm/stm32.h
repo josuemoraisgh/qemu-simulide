@@ -308,7 +308,7 @@ typedef struct Stm32Uart Stm32Uart;
  * board's pin mapping should be passed in.  This will be used to
  * verify the correct mapping is configured by the software.
  */
-void stm32_uart_connect(Stm32Uart *s, Chardev *chr, uint32_t afio_board_map);
+void stm32_uart_connect(Stm32Uart *s, Chardev *chr/*, uint32_t afio_board_map*/);
 
 
 /* Timer */
