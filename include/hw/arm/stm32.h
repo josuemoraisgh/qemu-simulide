@@ -298,9 +298,7 @@ typedef struct Stm32Dac Stm32Dac;
 
 /* UART */
 #define STM32_UART_COUNT 5
-
 typedef struct Stm32Uart Stm32Uart;
-
 #define TYPE_STM32_UART "stm32-uart"
 #define STM32_UART(obj) OBJECT_CHECK(Stm32Uart, (obj), TYPE_STM32_UART)
 
@@ -308,7 +306,7 @@ typedef struct Stm32Uart Stm32Uart;
  * board's pin mapping should be passed in.  This will be used to
  * verify the correct mapping is configured by the software.
  */
-void stm32_uart_connect(Stm32Uart *s, Chardev *chr/*, uint32_t afio_board_map*/);
+//void stm32_uart_connect(Stm32Uart *s, Chardev *chr/*, uint32_t afio_board_map*/);
 
 
 /* Timer */
@@ -379,9 +377,9 @@ void stm32_adc_set_channel_value(Stm32Adc *adc, const unsigned int channel, cons
 
 void stm32_iwdg_set_rcc(Stm32Iwdg *iwdg, Stm32Rcc* rcc);
 
-void stm32_uart_set_gpio(Stm32Uart *uart, Stm32Gpio** gpio);
+///void stm32_uart_set_gpio(Stm32Uart *uart, Stm32Gpio** gpio);
 void stm32_uart_set_rcc(Stm32Uart *uart, Stm32Rcc* rcc);
-void stm32_uart_set_afio(Stm32Uart *uart, Stm32Afio* afio);
+///void stm32_uart_set_afio(Stm32Uart *uart, Stm32Afio* afio);
 void stm32_uart_set_id(Stm32Uart *uart, int uart_num);
 
 void stm32_timer_set_gpio(Stm32Timer *tim, Stm32Gpio** gpio);

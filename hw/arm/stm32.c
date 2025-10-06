@@ -183,8 +183,8 @@ static void stm32_create_uart_dev(Object *stm32_container,
   DeviceState *uart_dev = qdev_new("stm32-uart");
   QDEV_PROP_SET_PERIPH_T(uart_dev, "periph", periph);
   stm32_uart_set_rcc( STM32_UART(uart_dev), STM32_RCC(rcc_dev) );
-  stm32_uart_set_gpio( STM32_UART(uart_dev), (Stm32Gpio **)(gpio_dev) );
-  stm32_uart_set_afio( STM32_UART(uart_dev), STM32_AFIO(afio_dev) );
+  ///stm32_uart_set_gpio( STM32_UART(uart_dev), (Stm32Gpio **)(gpio_dev) );
+  ///stm32_uart_set_afio( STM32_UART(uart_dev), STM32_AFIO(afio_dev) );
   stm32_uart_set_id( STM32_UART(uart_dev),uart_num );
   snprintf( child_name, sizeof(child_name), "uart[%i]", uart_num );
 
