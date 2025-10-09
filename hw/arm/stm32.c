@@ -207,8 +207,8 @@ static void stm32_create_timer_dev(Object *stm32_container,
   QDEV_PROP_SET_PERIPH_T(timer_dev, "periph", periph);
 
   stm32_timer_set_rcc(STM32_TIMER(timer_dev), STM32_RCC(rcc_dev));
-  stm32_timer_set_gpio(STM32_TIMER(timer_dev), (Stm32Gpio **)gpio_dev);
-  stm32_timer_set_afio(STM32_TIMER(timer_dev), STM32_AFIO(afio_dev));
+  //stm32_timer_set_gpio(STM32_TIMER(timer_dev), (Stm32Gpio **)gpio_dev);
+  //stm32_timer_set_afio(STM32_TIMER(timer_dev), STM32_AFIO(afio_dev));
   snprintf(child_name, sizeof(child_name), "timer[%i]", timer_num);
   object_property_add_child(stm32_container, child_name, OBJECT(timer_dev));
   if( !sysbus_realize(SYS_BUS_DEVICE(timer_dev), errp))

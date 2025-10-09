@@ -382,9 +382,9 @@ void stm32_uart_set_rcc(Stm32Uart *uart, Stm32Rcc* rcc);
 ///void stm32_uart_set_afio(Stm32Uart *uart, Stm32Afio* afio);
 void stm32_uart_set_id(Stm32Uart *uart, int uart_num);
 
-void stm32_timer_set_gpio(Stm32Timer *tim, Stm32Gpio** gpio);
+///void stm32_timer_set_gpio(Stm32Timer *tim, Stm32Gpio** gpio);
 void stm32_timer_set_rcc(Stm32Timer *tim, Stm32Rcc* rcc);
-void stm32_timer_set_afio(Stm32Timer *tim, Stm32Afio* afio);
+///void stm32_timer_set_afio(Stm32Timer *tim, Stm32Afio* afio);
 
 void stm32_rtc_set_rcc(Stm32Rtc *rtc, Stm32Rcc* rcc);
 
