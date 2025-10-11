@@ -1,226 +1,86 @@
-name: Build & Release qemu-simulide
+name: mingw-build
 
 on:
   push:
-    tags:
-      - 'v*'                 # cria release quando você fizer push de uma tag vX.Y.Z
+    branches: [ main ]
+  pull_request:
   workflow_dispatch:
-    inputs:
-      prerelease:
-        description: 'Marcar release como pré-release?'
-        required: false
-        default: 'false'
-
-permissions:
-  contents: write            # necessário para publicar a Release
-  actions: read
 
 jobs:
-  linux:
-    name: Linux (Ubuntu)
-    runs-on: ubuntu-22.04
+  build:
+    runs-on: windows-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive
 
-      - name: Instalar dependências
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            ninja-build meson pkg-config python3 \
-            libglib2.0-dev libpixman-1-dev zlib1g-dev libgcrypt20-dev
-
-      - name: Configurar build (xtensa-softmmu)
-        run: |
-          mkdir -p build
-          ./configure --target-list=xtensa-softmmu \
-            --extra-cflags=-fPIC \
-            --disable-attr --disable-auth-pam --disable-avx2 --disable-avx512bw \
-            --disable-blkio --disable-bochs --disable-bpf --disable-brlapi \
-            --disable-bzip2 --disable-canokey --disable-cap-ng --disable-capstone \
-            --disable-cloop --disable-cocoa --disable-colo-proxy --disable-coreaudio \
-            --disable-crypto-afalg --disable-curl --disable-curses --disable-dbus-display \
-            --disable-dmg --disable-docs --disable-dsound --disable-fuse --disable-fuse-lseek \
-            --disable-gcrypt --disable-gettext --disable-gio --disable-glusterfs --disable-gnutls \
-            --disable-gtk --disable-gtk-clipboard --disable-guest-agent --disable-guest-agent-msi \
-            --disable-hvf --disable-iconv --disable-jack --disable-keyring --disable-kvm \
-            --disable-l2tpv3 --disable-libdaxctl --disable-libdw --disable-libiscsi \
-            --disable-libkeyutils --disable-libnfs --disable-libpmem --disable-libssh \
-            --disable-libudev --disable-libusb --disable-libvduse --disable-linux-aio \
-            --disable-linux-io-uring --disable-lzfse --disable-lzo --disable-malloc-trim \
-            --disable-membarrier --disable-modules --disable-mpath --disable-multiprocess \
-            --disable-netmap --disable-nettle --disable-numa --disable-nvmm --disable-opengl \
-            --disable-oss --disable-pa --disable-parallels --disable-pipewire --disable-png \
-            --disable-qcow1 --disable-qed --disable-qga-vss --disable-rbd --disable-rdma \
-            --disable-replication --disable-sdl --disable-sdl-image --disable-seccomp \
-            --disable-selinux --disable-smartcard --disable-snappy --disable-sndio \
-            --disable-sparse --disable-spice --disable-spice-protocol --disable-stack-protector \
-            --disable-tcg --disable-tools --disable-tpm --disable-u2f --disable-usb-redir \
-            --disable-vde --disable-vdi --disable-vhdx --disable-vhost-crypto --disable-vhost-kernel \
-            --disable-vhost-net --disable-vhost-user --disable-vhost-vdpa --disable-virglrenderer \
-            --disable-virtfs --disable-vmdk --disable-vmnet --disable-vnc --disable-vnc-jpeg \
-            --disable-vnc-sasl --disable-vpc --disable-vte --disable-vvfat --disable-whpx \
-            --disable-xen --disable-xkbcommon --disable-zstd --disable-system --disable-user \
-            --disable-linux-user --disable-bsd-user --disable-pie --disable-debug-tcg \
-            --disable-werror --disable-alsa --disable-debug-info \
-            --enable-tcg --enable-system
-
-      - name: Compilar
-        run: |
-          ninja -C build
-
-      - name: Empacotar artefato
-        run: |
-          mkdir -p out/linux
-          cp build/qemu-system-xtensa out/linux/
-          tar -C out -czf qemu-simulide-linux-x86_64.tar.gz linux
-
-      - name: Publicar artefato (CI)
-        uses: actions/upload-artifact@v4
-        with:
-          name: qemu-simulide-linux-x86_64
-          path: qemu-simulide-linux-x86_64.tar.gz
-
-  windows:
-    name: Windows (MSYS2 MINGW64)
-    runs-on: windows-2022
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - name: Instalar MSYS2 e toolchain
+      - name: Setup MSYS2 (MinGW-w64 64-bit)
         uses: msys2/setup-msys2@v2
         with:
-          update: true
           msystem: MINGW64
+          update: true
           install: >-
-            base-devel
             git
+            base-devel
             mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-python
             mingw-w64-x86_64-meson
             mingw-w64-x86_64-ninja
-            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-python
             mingw-w64-x86_64-glib2
             mingw-w64-x86_64-pixman
+            mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-libslirp
+            mingw-w64-x86_64-gnutls
+            mingw-w64-x86_64-libssh
             mingw-w64-x86_64-zlib
-            mingw-w64-x86_64-libgcrypt
+            mingw-w64-x86_64-libpng
+            mingw-w64-x86_64-libjpeg-turbo
+            mingw-w64-x86_64-pkgconf
 
-      - name: Configurar & Compilar (MSYS2)
+      - name: Configure (Meson)
         shell: msys2 {0}
         run: |
-          set -e
-          mkdir -p build
-          ./configure --target-list=xtensa-softmmu \
-            --extra-cflags=-fPIC \
-            --disable-attr --disable-auth-pam --disable-avx2 --disable-avx512bw \
-            --disable-blkio --disable-bochs --disable-bpf --disable-brlapi \
-            --disable-bzip2 --disable-canokey --disable-cap-ng --disable-capstone \
-            --disable-cloop --disable-cocoa --disable-colo-proxy --disable-coreaudio \
-            --disable-crypto-afalg --disable-curl --disable-curses --disable-dbus-display \
-            --disable-dmg --disable-docs --disable-dsound --disable-fuse --disable-fuse-lseek \
-            --disable-gettext --disable-gio --disable-glusterfs --disable-gnutls \
-            --disable-gtk --disable-gtk-clipboard --disable-guest-agent --disable-guest-agent-msi \
-            --disable-hvf --disable-iconv --disable-jack --disable-keyring --disable-kvm \
-            --disable-l2tpv3 --disable-libdaxctl --disable-libdw --disable-libiscsi \
-            --disable-libkeyutils --disable-libnfs --disable-libpmem --disable-libssh \
-            --disable-libudev --disable-libusb --disable-libvduse --disable-linux-aio \
-            --disable-linux-io-uring --disable-lzfse --disable-lzo --disable-malloc-trim \
-            --disable-membarrier --disable-modules --disable-mpath --disable-multiprocess \
-            --disable-netmap --disable-nettle --disable-numa --disable-nvmm --disable-opengl \
-            --disable-oss --disable-pa --disable-parallels --disable-pipewire --disable-png \
-            --disable-qcow1 --disable-qed --disable-qga-vss --disable-rbd --disable-rdma \
-            --disable-replication --disable-sdl --disable-sdl-image --disable-seccomp \
-            --disable-selinux --disable-smartcard --disable-snappy --disable-sndio \
-            --disable-sparse --disable-spice --disable-spice-protocol --disable-stack-protector \
-            --disable-tcg --disable-tools --disable-tpm --disable-u2f --disable-usb-redir \
-            --disable-vde --disable-vdi --disable-vhdx --disable-vhost-crypto --disable-vhost-kernel \
-            --disable-vhost-net --disable-vhost-user --disable-vhost-vdpa --disable-virglrenderer \
-            --disable-virtfs --disable-vmdk --disable-vmnet --disable-vnc --disable-vnc-jpeg \
-            --disable-vnc-sasl --disable-vpc --disable-vte --disable-vvfat --disable-whpx \
-            --disable-xen --disable-xkbcommon --disable-zstd --disable-system --disable-user \
-            --disable-linux-user --disable-bsd-user --disable-pie --disable-debug-tcg \
-            --disable-werror --disable-alsa --disable-debug-info \
-            --enable-tcg --enable-system
+          meson setup build ^
+            --prefix=$MINGW_PREFIX ^
+            -Doptimization=2 ^
+            -Dstrip=false ^
+            -Ddefault_targets=false ^
+            -Dtargets=xtensa-softmmu ^
+            -Dsdl=enabled ^
+            -Dslirp=enabled ^
+            -Dcapstone=enabled ^
+            -Dgnutls=enabled ^
+            -Dlibssh=enabled
+
+      - name: Build (Ninja)
+        shell: msys2 {0}
+        run: |
           ninja -C build
-          mkdir -p out/win64
-          cp build/qemu-system-xtensa.exe out/win64/
 
-      - name: Descobrir e copiar DLLs do MSYS2/MINGW64 (plug-and-play)
+      - name: Install to staging (DESTDIR)
         shell: msys2 {0}
         run: |
-          set -e
-          # 1) Instalar ntldd (descobre dependências)
-          pacman --noconfirm -S mingw-w64-x86_64-ntldd
+          rm -rf dist
+          mkdir -p dist
+          meson install -C build --no-rebuild --destdir dist
+          # Opcional: incluir ROMs/pc-bios se necessário
+          if [ -d "pc-bios" ]; then
+            mkdir -p dist/$MINGW_PREFIX/share/qemu
+            cp -r pc-bios dist/$MINGW_PREFIX/share/qemu/
+          fi
 
-          BIN=build/qemu-system-xtensa.exe
-          DEST=out/win64
-
-          # 2) Obter lista recursiva de DLLs; filtrar as do /mingw64/bin
-          ntldd -R "$BIN" \
-            | sed -n 's/.*=> \(.*\/mingw64\/bin\/[^ ]*\.dll\).*/\1/p' \
-            | sort -u > /tmp/dlls.txt
-
-          echo "=== DLLs detectadas ==="
-          cat /tmp/dlls.txt || true
-
-          # 3) Copiar DLLs para a pasta final
-          while IFS= read -r dll; do
-            cp -v "$dll" "$DEST/"
-          done < /tmp/dlls.txt
-
-          # 4) (Opcional) Copiar licenças
-          mkdir -p "$DEST/licenses"
-          for pkg in glib2 pixman zlib libgcrypt libgpg-error \
-                     gcc-libs libwinpthread; do
-            if [ -d "/mingw64/share/licenses/$pkg" ]; then
-              cp -vr "/mingw64/share/licenses/$pkg" "$DEST/licenses/" || true
-            fi
-          done
-
-      - name: Verificar conteúdo final (exe + DLLs)
-        shell: bash
-        run: ls -al out/win64
-
-      - name: Empacotar artefato
+      - name: Package artifact (zip)
         shell: bash
         run: |
-          cd out
-          7z a -tzip ../qemu-simulide-win64.zip win64
+          cd dist
+          7z a ../qemu-simulide-windows-mingw64.zip .
           cd ..
 
-      - name: Publicar artefato (CI)
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: qemu-simulide-win64
-          path: qemu-simulide-win64.zip
-
-  release:
-    name: Criar Release
-    needs: [linux, windows]
-    runs-on: ubuntu-22.04
-    if: startsWith(github.ref, 'refs/tags/')
-
-    steps:
-      - name: Baixar artefatos
-        uses: actions/download-artifact@v4
-        with:
-          path: dist
-
-      - name: Listar artefatos
-        run: ls -R dist
-
-      - name: Publicar Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/qemu-simulide-linux-x86_64/qemu-simulide-linux-x86_64.tar.gz
-            dist/qemu-simulide-win64/qemu-simulide-win64.zip
-          prerelease: ${{ github.event.inputs.prerelease || 'false' }}
-          generate_release_notes: true
+          name: qemu-simulide-windows-mingw64
+          path: qemu-simulide-windows-mingw64.zip
+          if-no-files-found: error
