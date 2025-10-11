@@ -31,9 +31,8 @@ jobs:
             git
             base-devel
             mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-meson
-            mingw-w64-x86_64-ninja
             mingw-w64-x86_64-python
+            mingw-w64-x86_64-pkgconf
             mingw-w64-x86_64-glib2
             mingw-w64-x86_64-pixman
             mingw-w64-x86_64-SDL2
@@ -43,34 +42,34 @@ jobs:
             mingw-w64-x86_64-zlib
             mingw-w64-x86_64-libpng
             mingw-w64-x86_64-libjpeg-turbo
-            mingw-w64-x86_64-pkgconf
             mingw-w64-x86_64-capstone
+            make
 
-      - name: Configure (Meson)
+      - name: Configure (legacy ./configure)
         shell: msys2 {0}
         run: |
           pwd
-          meson setup build \
+          ./configure \
             --prefix=$MINGW_PREFIX \
-            -Doptimization=2 \
-            -Dstrip=false \
-            -Dtarget_list=xtensa-softmmu \
-            -Dsdl=enabled \
-            -Dslirp=enabled \
-            -Dcapstone=enabled \
-            -Dgnutls=enabled \
-            -Dlibssh=enabled
+            --target-list=xtensa-softmmu \
+            --enable-sdl \
+            --enable-slirp \
+            --enable-capstone \
+            --enable-gnutls \
+            --enable-libssh \
+            --disable-werror
 
-      - name: Build (Ninja)
+      - name: Build (make)
         shell: msys2 {0}
-        run: ninja -C build
+        run: |
+          make -j$(nproc)
 
       - name: Install to staging (DESTDIR)
         shell: msys2 {0}
         run: |
           rm -rf dist
           mkdir -p dist
-          meson install -C build --no-rebuild --destdir dist
+          make install DESTDIR="$(pwd)/dist"
 
       - name: Package artifact (zip)
         shell: pwsh
@@ -85,15 +84,14 @@ jobs:
           path: qemu-simulide-windows-mingw64.zip
           if-no-files-found: error
 
-      # Mostra o log do Meson se algo falhar acima
-      - name: Always print meson-log on failure
+      # Diagnóstico se o configure/make falhar
+      - name: Show config.log on failure
         if: ${{ failure() }}
         shell: pwsh
         run: |
-          $log = "build/meson-logs/meson-log.txt"
+          $log = "config.log"
           if (Test-Path $log) {
-            Write-Host "===== meson-log.txt ====="
+            Write-Host "===== config.log ====="
             Get-Content $log -Raw | Write-Output
           } else {
-            Write-Host "meson-log.txt not found."
-          }
+            Write-Host "config.log not found."
