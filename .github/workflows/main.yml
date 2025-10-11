@@ -49,16 +49,17 @@ jobs:
       - name: Configure (Meson)
         shell: msys2 {0}
         run: |
-          meson setup build ^
-            --prefix=$MINGW_PREFIX ^
-            -Doptimization=2 ^
-            -Dstrip=false ^
-            -Ddefault_targets=false ^
-            -Dtargets=xtensa-softmmu ^
-            -Dsdl=enabled ^
-            -Dslirp=enabled ^
-            -Dcapstone=enabled ^
-            -Dgnutls=enabled ^
+          pwd
+          meson setup build \
+            --prefix=$MINGW_PREFIX \
+            -Doptimization=2 \
+            -Dstrip=false \
+            -Ddefault_targets=false \
+            -Dtargets=xtensa-softmmu \
+            -Dsdl=enabled \
+            -Dslirp=enabled \
+            -Dcapstone=enabled \
+            -Dgnutls=enabled \
             -Dlibssh=enabled
 
       - name: Build (Ninja)
