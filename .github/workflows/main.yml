@@ -87,13 +87,26 @@ jobs:
           if-no-files-found: error
 
       # Diagnóstico se o configure/make falhar
-      - name: Show config.log on failure
+      - name: Show logs on failure (config.log / meson-log)
         if: ${{ failure() }}
         shell: pwsh
         run: |
-          $log = "config.log"
-          if (Test-Path $log) {
-            Write-Host "===== config.log ====="
-            Get-Content $log -Raw | Write-Output
+          $cfg = "config.log"
+          $mes = "build/meson-logs/meson-log.txt"
+    
+          if (Test-Path -LiteralPath $cfg) {
+            Write-Host "===== BEGIN config.log ====="
+            Get-Content -LiteralPath $cfg -Raw
+            Write-Host "===== END config.log ====="
           } else {
             Write-Host "config.log not found."
+          }
+    
+          if (Test-Path -LiteralPath $mes) {
+            Write-Host "===== BEGIN meson-log.txt ====="
+            Get-Content -LiteralPath $mes -Raw
+            Write-Host "===== END meson-log.txt ====="
+          } else {
+            Write-Host "meson-log.txt not found."
+          }
+
