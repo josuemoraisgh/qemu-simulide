@@ -44,6 +44,8 @@ jobs:
             mingw-w64-x86_64-libjpeg-turbo
             mingw-w64-x86_64-capstone
             make
+            mingw-w64-x86_64-ninja       # <- ADICIONE
+            mingw-w64-x86_64-meson       # <- ADICIONE
 
       - name: Configure (legacy ./configure)
         shell: msys2 {0}
