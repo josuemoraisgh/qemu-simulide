@@ -54,8 +54,7 @@ jobs:
             --prefix=$MINGW_PREFIX \
             -Doptimization=2 \
             -Dstrip=false \
-            -Ddefault_targets=false \
-            -Dtargets=xtensa-softmmu \
+            -Dtarget_list=xtensa-softmmu \
             -Dsdl=enabled \
             -Dslirp=enabled \
             -Dcapstone=enabled \
@@ -74,11 +73,10 @@ jobs:
           meson install -C build --no-rebuild --destdir dist
 
       - name: Package artifact (zip)
-        shell: bash
+        shell: pwsh
         run: |
-          cd dist
-          7z a ../qemu-simulide-windows-mingw64.zip .
-          cd ..
+          if (Test-Path qemu-simulide-windows-mingw64.zip) { Remove-Item qemu-simulide-windows-mingw64.zip }
+          Compress-Archive -Path dist\* -DestinationPath qemu-simulide-windows-mingw64.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -86,3 +84,16 @@ jobs:
           name: qemu-simulide-windows-mingw64
           path: qemu-simulide-windows-mingw64.zip
           if-no-files-found: error
+
+      # Mostra o log do Meson se algo falhar acima
+      - name: Always print meson-log on failure
+        if: ${{ failure() }}
+        shell: pwsh
+        run: |
+          $log = "build/meson-logs/meson-log.txt"
+          if (Test-Path $log) {
+            Write-Host "===== meson-log.txt ====="
+            Get-Content $log -Raw | Write-Output
+          } else {
+            Write-Host "meson-log.txt not found."
+          }
