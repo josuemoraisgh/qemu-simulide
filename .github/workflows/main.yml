@@ -1,22 +1,39 @@
-name: mingw-build
+name: MinGW Build & Release (qemu-simulide)
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Versão/Tag (ex.: v0.1.0)"
+        required: true
+        type: string
+      prerelease:
+        description: "Marcar como pré-release?"
+        required: false
+        default: false
+        type: boolean
+      notes:
+        description: "Notas da release (opcional)"
+        required: false
+        type: string
+
+permissions:
+  contents: write   # necessário para criar tag/release e anexar asset
 
 jobs:
-  build:
+  build-release:
     runs-on: windows-latest
 
+    env:
+      ZIP_NAME: qemu-simulide-windows-mingw64-${{ inputs.version }}.zip
+
     steps:
-      - name: Enable long paths in Git
+      - name: Habilitar long paths no Git
         run: |
           git config --system core.longpaths true
           git config --global core.longpaths true
 
-      - name: Checkout (no submodules)
+      - name: Checkout (sem submódulos)
         uses: actions/checkout@v4
         with:
           submodules: false
@@ -42,10 +59,21 @@ jobs:
             mingw-w64-x86_64-zlib
             mingw-w64-x86_64-libpng
             mingw-w64-x86_64-libjpeg-turbo
-            mingw-w64-x86_64-capstone            
-            mingw-w64-x86_64-ninja 
-            mingw-w64-x86_64-meson 
+            mingw-w64-x86_64-capstone
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-meson
+            mingw-w64-x86_64-ntldd
 
+      - name: Versões das ferramentas
+        shell: msys2 {0}
+        run: |
+          which gcc && gcc --version
+          which python3 && python3 --version
+          which meson && meson --version
+          which ninja && ninja --version
+          which ntldd && ntldd --version
+
+      # ---- BUILD (configure + make) ----
       - name: Configure (legacy ./configure)
         shell: msys2 {0}
         run: |
@@ -63,7 +91,7 @@ jobs:
       - name: Build (make)
         shell: msys2 {0}
         run: |
-          make -j$(nproc)
+          make -j"$(nproc)"
 
       - name: Install to staging (DESTDIR)
         shell: msys2 {0}
@@ -71,41 +99,67 @@ jobs:
           rm -rf dist
           mkdir -p dist
           make install DESTDIR="$(pwd)/dist"
+          # Opcional: garantir que o diretório bin existe
+          test -d "dist/$MINGW_PREFIX/bin" || mkdir -p "dist/$MINGW_PREFIX/bin"
 
-      - name: Package artifact (zip)
+      # ---- BUNDLE DLLs ----
+      - name: Bundle runtime DLLs (copiar dependências para bin)
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          BIN_DIR="dist/$MINGW_PREFIX/bin"
+          test -d "$BIN_DIR"
+          # Coleta dependências de todos .exe/.dll instalados no bin
+          mapfile -t DEPS < <(
+            find "$BIN_DIR" -maxdepth 1 -type f \( -name '*.exe' -o -name '*.dll' \) -print0 |
+            xargs -0 -I{} ntldd -R "{}" |
+            sed -n 's/.* => \(.*mingw64\/bin\/[^ ]*\) .*/\1/p' |
+            sort -u
+          )
+          for d in "${DEPS[@]}"; do
+            if [ -f "$d" ]; then
+              cp -n "$d" "$BIN_DIR/"
+            fi
+          done
+          echo "DLLs empacotadas em: $BIN_DIR"
+          # Dica: copie também share/qemu se existir (bios/roms etc.):
+          if [ -d "$MINGW_PREFIX/share/qemu" ] && [ ! -d "dist/$MINGW_PREFIX/share/qemu" ]; then
+            mkdir -p "dist/$MINGW_PREFIX/share"
+            cp -r "$MINGW_PREFIX/share/qemu" "dist/$MINGW_PREFIX/share/"
+          fi
+
+      # ---- PACKAGE ----
+      - name: Gerar ZIP
         shell: pwsh
         run: |
-          if (Test-Path qemu-simulide-windows-mingw64.zip) { Remove-Item qemu-simulide-windows-mingw64.zip }
-          Compress-Archive -Path dist\* -DestinationPath qemu-simulide-windows-mingw64.zip
+          if (Test-Path "${{ env.ZIP_NAME }}") { Remove-Item "${{ env.ZIP_NAME }}" }
+          Compress-Archive -Path dist\* -DestinationPath "${{ env.ZIP_NAME }}"
 
-      - name: Upload artifact
+      - name: Upload artifact (CI)
         uses: actions/upload-artifact@v4
         with:
-          name: qemu-simulide-windows-mingw64
-          path: qemu-simulide-windows-mingw64.zip
+          name: ${{ env.ZIP_NAME }}
+          path: ${{ env.ZIP_NAME }}
           if-no-files-found: error
 
-      # Diagnóstico se o configure/make falhar
+      # ---- CREATE TAG + RELEASE ----
+      - name: Criar Release com tag ${{ inputs.version }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version }}
+          name: qemu-simulide ${{ inputs.version }}
+          body: ${{ inputs.notes }}
+          prerelease: ${{ inputs.prerelease }}
+          target_commitish: ${{ github.sha }}
+          files: ${{ env.ZIP_NAME }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ---- LOGS EM CASO DE FALHA ----
       - name: Show logs on failure (config.log / meson-log)
         if: ${{ failure() }}
-        shell: pwsh
+        shell: bash
         run: |
-          $cfg = "config.log"
-          $mes = "build/meson-logs/meson-log.txt"
-    
-          if (Test-Path -LiteralPath $cfg) {
-            Write-Host "===== BEGIN config.log ====="
-            Get-Content -LiteralPath $cfg -Raw
-            Write-Host "===== END config.log ====="
-          } else {
-            Write-Host "config.log not found."
-          }
-    
-          if (Test-Path -LiteralPath $mes) {
-            Write-Host "===== BEGIN meson-log.txt ====="
-            Get-Content -LiteralPath $mes -Raw
-            Write-Host "===== END meson-log.txt ====="
-          } else {
-            Write-Host "meson-log.txt not found."
-          }
-
+          set -euo pipefail
+          { test -f config.log && echo "===== BEGIN config.log =====" && cat config.log && echo "===== END config.log ====="; } || echo "config.log not found."
+          { test -f build/meson-logs/meson-log.txt && echo "===== BEGIN meson-log.txt =====" && cat build/meson-logs/meson-log.txt && echo "===== END meson-log.txt ====="; } || echo "meson-log.txt not found."
