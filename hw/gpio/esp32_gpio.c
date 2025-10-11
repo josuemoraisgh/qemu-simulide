@@ -68,7 +68,7 @@ static void readInput( Esp32GpioState *gpioS, int n )
     m_arena->data8 = n;
     m_arena->data32 = *gpioIn;
     m_arena->time   = qemuTime;
-    m_arena->action = GPIO_IN;
+    m_arena->action = ESP_GPIO_IN;
 
     while( m_arena->action ) // Wait for read completed
     {
@@ -158,7 +158,7 @@ static void outChanged( uint32_t state )
 
     //printf("gpioChanged %i %i %lu %lu\n", pin, state, newState, qemuTime ); fflush( stdout );
 
-    m_arena->action = GPIO_OUT;
+    m_arena->action = ESP_GPIO_OUT;
     m_arena->data32 = state;
     m_arena->time = qemuTime;
 }
@@ -168,7 +168,7 @@ static void dirChanged( uint32_t dir )
     uint64_t qemuTime = getQemu_ps();
     if( !waitEvent() ) return;
 //printf("dirChanged %i %lu\n", dir, qemuTime ); fflush( stdout );
-    m_arena->action = GPIO_DIR;
+    m_arena->action = ESP_GPIO_DIR;
     m_arena->data32 = dir;
     m_arena->time = qemuTime;
 }
@@ -185,7 +185,7 @@ static void matrixChanged( int out, int func, int value )
     uint64_t qemuTime = getQemu_ps();
     if( !waitEvent() ) return;
 
-    m_arena->action = out ? MATRIX_OUT : MATRIX_IN;
+    m_arena->action = out ? ESP_MATRIX_OUT : ESP_MATRIX_IN;
     m_arena->data32 = value;
     m_arena->data8  = func;
     m_arena->time = qemuTime;
