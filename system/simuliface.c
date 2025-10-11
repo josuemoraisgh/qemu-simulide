@@ -51,6 +51,8 @@ uint64_t getQemu_ps(void)
 
 bool waitEvent(void)
 {
+    /// Here we can listen to simulide input events
+
     while( m_arena->time )  // An event is pending, Wait for QemuDevice::runEvent()
     {
         m_timeout += 1;

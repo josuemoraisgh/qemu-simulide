@@ -192,10 +192,10 @@ static void stm32_timer_tick(void *opaque) // overflow
         else                                 s->countMode = TIMER_UP_COUNT;
     }
 
-    if( s->oneShot ) // One shot, disable Timer
+    if( s->oneShot ) // One shot
     {
         s->cr1 &= ~CR1_CEN;
-        ptimer_stop( s->timer );
+        //ptimer_stop( s->timer );
     }
     //else stm32_timer_update(s);
 }

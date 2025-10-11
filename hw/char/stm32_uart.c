@@ -91,9 +91,9 @@ struct Stm32Uart {
   uint32_t intEnable;
   uint32_t intFlags;
 
-  bool sr_read_since_ore_set;
+  bool sr_read_with_ore;
 
-  bool receiving; /* Indicates whether the USART is currently receiving a byte. */
+  bool receiving; // Indicates whether the USART is currently receiving a byte.
 
   /* Timers used to simulate a delay corresponding to the baud rate. */
   struct QEMUTimer *rx_timer;
@@ -106,7 +106,7 @@ struct Stm32Uart {
   int id;
 };
 
-static void stm32_uart_baud_update( Stm32Uart *s ) /* Update the baud rate based on the USART's peripheral clock frequency. */
+static void stm32_uart_baud_update( Stm32Uart *s ) // Update the baud rate based on the USART's peripheral clock frequency.
 {
     uint32_t clk_freq = stm32_rcc_get_periph_freq( s->stm32_rcc, s->periph );
 
@@ -118,16 +118,15 @@ static void stm32_uart_baud_update( Stm32Uart *s ) /* Update the baud rate based
 
     m_arena->action = SIM_USART;
     m_arena->data8  = SIM_USART_BAUD;
-    m_arena->data16 = s->id;         // Uart number
+    m_arena->data16 = s->id;          // Uart number
     m_arena->data32 = s->bits_per_sec;
-    m_arena->time   = qemuTime;  // time in ps
+    m_arena->time   = qemuTime;       // time in ps
 
-    /* We assume 10 bits per character.  This may not be exactly accurate depending on settings, but it should be good enough. */
-    uint64_t ns_per_bit = 1000000000LL / s->bits_per_sec;
-    s->ns_per_char = ns_per_bit * 10;
+    /* We assume 10 bits per character. This may not be exactly accurate depending on settings, but it should be good enough. */
+    s->ns_per_char = 10 * 1000000000LL / s->bits_per_sec;
 }
 
-static void stm32_uart_clk_irq_handler( void *opaque, int n, int level ) /* Handle a change in the peripheral clock. */
+static void stm32_uart_clk_irq_handler( void *opaque, int n, int level ) // Handle a change in the peripheral clock.
 {
     Stm32Uart *s = (Stm32Uart *)opaque;
 
@@ -136,16 +135,16 @@ static void stm32_uart_clk_irq_handler( void *opaque, int n, int level ) /* Hand
     if( level ) stm32_uart_baud_update(s); /* Only update the BAUD rate if the IRQ is being set. */
 }
 
-static void stm32_uart_update_irq( Stm32Uart *s ) /* Routine which updates the USART's IRQ. This should be called whenever an interrupt-related flag is updated. */
+static void stm32_uart_update_irq( Stm32Uart *s ) // Called whenever an interrupt-related flag is updated.
 {
-    s->intFlags = s->SR_TC | s->SR_TXE | s->SR_RXNE | s->SR_ORE;
+    s->intFlags = s->SR_TC | s->SR_TXE | s->SR_RXNE | s->SR_ORE; // Interupts currently raised
 
-    bool new_irq_level = (s->intEnable & s->intFlags) > 0;
+    bool new_irq_level = (s->intEnable & s->intFlags) > 0;       // Filter interrupts enabled
 
     if( new_irq_level != s->curr_irq_level ) // Only trigger an interrupt if the IRQ level changes.
     {
-      qemu_set_irq( s->irq, new_irq_level );
-      s->curr_irq_level = new_irq_level;
+        qemu_set_irq( s->irq, new_irq_level );
+        s->curr_irq_level = new_irq_level;
     }
 }
 
@@ -153,20 +152,17 @@ static void stm32_uart_start_tx( Stm32Uart *s );
 
 static void stm32_uart_tx_complete( Stm32Uart *s ) /* Routine to be called when a transmit is complete. */
 {
-    if( s->SR_TXE )// Buffer is empty, nothing to be transmitted. Mark the transmit complete.
-    {
-        s->SR_TC = 1<<SR_TC_BIT;
+    if( s->SR_TXE ) {              // Buffer is empty
+        s->SR_TC = 1<<SR_TC_BIT;   // Mark the transmit complete
     }
-    else                // Otherwise, mark the transmit buffer as empty and start transmitting.
-    {
-        s->SR_TXE = 1<<SR_TXE_BIT;
-        stm32_uart_start_tx( s );
+    else {                         // Buffer not empty.
+        s->SR_TXE = 1<<SR_TXE_BIT; // Mark transmit buffer empty
+        stm32_uart_start_tx( s );  // start transmitting
     }
     stm32_uart_update_irq(s);
 }
 
-/* Start transmitting a character. */
-static void stm32_uart_start_tx( Stm32Uart *s )
+static void stm32_uart_start_tx( Stm32Uart *s ) // Start transmitting a byte.
 {
     if( !s->CR1_UE || !s->CR1_TE ) return; // Transmitter disabled
 
@@ -174,25 +170,20 @@ static void stm32_uart_start_tx( Stm32Uart *s )
 
     s->SR_TC = 0; // Reset the Transmission Complete flag to indicate a transmit is in progress.
 
-    if( !waitEvent() ) return;        // Wait until SimulIDE is free
+    if( !waitEvent() ) return;       // Wait until SimulIDE is free
 
     m_arena->action = SIM_USART;
     m_arena->data8  = SIM_USART_WRITE;
-    m_arena->data16 = s->id;         // Uart number
+    m_arena->data16 = s->id;        // Uart number
     m_arena->data32 = s->TDR_r;
-    m_arena->time   = time_ns*1000;  // time in ps
+    m_arena->time   = time_ns*1000; // time in ps
 
     timer_mod( s->tx_timer, time_ns + s->ns_per_char ); // Start the transmit delay timer.
 }
 
-/* TIMER HANDLERS */
-/* Once the receive delay is finished, indicate the USART is finished receiving.
- * This will allow it to receive the next character.  The current character was
- * already received before starting the delay.
- */
-static void stm32_uart_rx_timer_expire( void *opaque )
+static void stm32_uart_rx_timer_expire( void *opaque ) // Receive delay complete, mark the receive as complete
 {
-    Stm32Uart *s = (Stm32Uart *)opaque;
+    Stm32Uart *s = (Stm32Uart*)opaque;
 
     s->receiving = false;
 
@@ -200,9 +191,7 @@ static void stm32_uart_rx_timer_expire( void *opaque )
     timer_mod(s->rx_timer, curr_time + s->ns_per_char);
 }
 
-/* When the transmit delay is complete, mark the transmit as complete
- * (the character was already sent before starting the delay). */
-static void stm32_uart_tx_timer_expire(void *opaque)
+static void stm32_uart_tx_timer_expire( void *opaque ) // Transmit delay complete, mark the transmit as complete
 {
     Stm32Uart *s = (Stm32Uart*)opaque;
     stm32_uart_tx_complete( s );
@@ -240,7 +229,7 @@ void stm32_uart_receive( void *opaque, const uint8_t *buf, int size )
     //     if( s->SR_RXNE )
     //    {
     //        s->SR_ORE = 1<<SR_ORE_BIT;
-    //        s->sr_read_since_ore_set = false;
+    //        s->sr_read_with_ore = false;
     //        stm32_uart_update_irq(s);
     //    }
 
@@ -271,8 +260,7 @@ void stm32_uart_receive( void *opaque, const uint8_t *buf, int size )
 
 inline static void stm32_uart_SR_read( Stm32Uart *s )
 {
-    /* If the Overflow flag is set, reading the SR register is the first step to resetting the flag. */
-    if( s->SR_ORE ) s->sr_read_since_ore_set = true;
+    s->sr_read_with_ore = s->SR_ORE; // Clear ORE: SR read followed by a DR read.
 
     uint32_t mask = 1<<SR_TXE_BIT | 1<<SR_TC_BIT | 1<<SR_RXNE_BIT | 1<<SR_ORE_BIT;
     s->SR_r &= ~mask;
@@ -289,21 +277,18 @@ inline static void stm32_uart_SR_write( Stm32Uart *s, uint32_t new_SR )
 
 inline static void stm32_uart_DR_read( Stm32Uart *s )
 {
-    if( s->sr_read_since_ore_set ) // If ORE is set, then it should be cleared if the software performs an SR read followed by a DR read.
-    {
+    if( s->sr_read_with_ore ) { // Clear ORE: SR read followed by a DR read.
+        s->sr_read_with_ore = false;
         s->SR_ORE = 0;
-        s->sr_read_since_ore_set = false;
     }
     s->SR_RXNE = 0;
 
     stm32_uart_update_irq(s);
 }
 
-inline static void stm32_uart_DR_write( Stm32Uart *s, uint32_t new_value )
+inline static void stm32_uart_DR_write( Stm32Uart *s, uint32_t new_DR )
 {
-    uint32_t write_value = new_value & 0x000001ff;
-
-    s->TDR_r = write_value;
+    s->TDR_r = new_DR & 0x000001ff;
 
     if( s->SR_TC ) stm32_uart_start_tx( s ); // Transmission Complete bit is set, transmission can immediately start.
     else           s->SR_TXE = 0;            // Mark buffer as not empty
@@ -311,9 +296,9 @@ inline static void stm32_uart_DR_write( Stm32Uart *s, uint32_t new_value )
     stm32_uart_update_irq(s);
 }
 
-inline static void stm32_uart_BRR_write(Stm32Uart *s, uint32_t new_value ) /* Update the Baud Rate Register. */
+inline static void stm32_uart_BRR_write( Stm32Uart *s, uint32_t new_BRR ) /* Update the Baud Rate Register. */
 {
-    s->BRR_r = new_value & 0x0000ffff;
+    s->BRR_r = new_BRR & 0x0000ffff;
 
     stm32_uart_baud_update(s);
 }
@@ -334,14 +319,14 @@ inline static void stm32_uart_CR1_write( Stm32Uart *s, uint32_t new_CR1 )
     stm32_uart_update_irq( s );
 }
 
-inline static void stm32_uart_CR2_write( Stm32Uart *s, uint32_t new_value )
+inline static void stm32_uart_CR2_write( Stm32Uart *s, uint32_t new_CR2 )
 {
-    s->CR2_r = new_value & 0x00007f7f;
+    s->CR2_r = new_CR2 & 0x00007f7f;
 }
 
-inline static void stm32_uart_CR3_write( Stm32Uart *s, uint32_t new_value )
+inline static void stm32_uart_CR3_write( Stm32Uart *s, uint32_t new_CR3 )
 {
-    s->CR3_r = new_value & 0x000007ff;
+    s->CR3_r = new_CR3 & 0x000007ff;
 
     if( s->CR3_r & CR3_r_DMAT_BIT ) {
       uint64_t curr_time = qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL );
@@ -438,14 +423,14 @@ static void stm32_uart_realize( DeviceState *dev, Error **errp )
 
     clk_irq = qemu_allocate_irqs( stm32_uart_clk_irq_handler, (void *)s, 1 );
     stm32_rcc_set_periph_clk_irq( s->stm32_rcc, s->periph, clk_irq[0] );
-    stm32_uart_reset((DeviceState *)s);
+    stm32_uart_reset( (DeviceState *)s );
 }
 
-void stm32_uart_set_rcc(Stm32Uart *uart, Stm32Rcc *rcc) {
+void stm32_uart_set_rcc( Stm32Uart *uart, Stm32Rcc *rcc ) {
     uart->stm32_rcc = rcc;
 }
 
-void stm32_uart_set_id(Stm32Uart *uart, int uart_num ) {
+void stm32_uart_set_id( Stm32Uart *uart, int uart_num ) {
     uart->id = uart_num -1;
 }
 
@@ -459,7 +444,7 @@ static void stm32_uart_class_init(ObjectClass *klass, void *data)
 
     dc->realize = stm32_uart_realize;
 
-    device_class_set_legacy_reset( dc,stm32_uart_reset);
+    device_class_set_legacy_reset( dc,stm32_uart_reset );
     device_class_set_props( dc, stm32_uart_properties );
 }
 
@@ -472,7 +457,7 @@ static TypeInfo stm32_uart_info = {
 };
 
 static void stm32_uart_register_types(void) {
-  type_register_static(&stm32_uart_info);
+  type_register_static( &stm32_uart_info );
 }
 
-type_init(stm32_uart_register_types)
+type_init( stm32_uart_register_types )
