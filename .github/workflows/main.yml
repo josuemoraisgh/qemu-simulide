@@ -11,28 +11,17 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      # 0) Habilita long paths no Git do runner ANTES do checkout
       - name: Enable long paths in Git
         run: |
           git config --system core.longpaths true
           git config --global core.longpaths true
 
-      # 1) Checkout SEM submódulos
       - name: Checkout (no submodules)
         uses: actions/checkout@v4
         with:
           submodules: false
           fetch-depth: 0
 
-      # 2) Inicialize apenas os submódulos necessários pro build
-      #    -> dtc e ui/keycodemapdb são os costumeiros; roms/* e edk2 NÃO são necessários para xtensa
-      - name: Init minimal submodules
-        shell: bash
-        run: |
-          git submodule sync -- dtc ui/keycodemapdb || true
-          git submodule update --init --depth 1 --jobs 4 dtc ui/keycodemapdb
-
-      # 3) Setup MSYS2 / MinGW-w64
       - name: Setup MSYS2 (MINGW64)
         uses: msys2/setup-msys2@v2
         with:
@@ -57,7 +46,6 @@ jobs:
             mingw-w64-x86_64-pkgconf
             mingw-w64-x86_64-capstone
 
-      # 4) Configura e compila (somente xtensa-softmmu)
       - name: Configure (Meson)
         shell: msys2 {0}
         run: |
@@ -77,7 +65,6 @@ jobs:
         shell: msys2 {0}
         run: ninja -C build
 
-      # 5) Instala em DESTDIR e empacota
       - name: Install to staging (DESTDIR)
         shell: msys2 {0}
         run: |
