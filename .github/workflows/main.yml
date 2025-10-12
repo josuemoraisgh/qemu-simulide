@@ -106,8 +106,8 @@ jobs:
         shell: msys2 {0}
         run: |
           set -euo pipefail
-
-          # 1) Descobre onde os EXEs foram instalados
+      
+          # 1) Onde os EXEs foram instalados
           EXE_PATH="$(find dist -type f -name 'qemu-system-xtensa*.exe' -print -quit || true)"
           if [ -z "$EXE_PATH" ]; then
             echo "qemu-system-xtensa*.exe não encontrado em dist/"
@@ -116,28 +116,30 @@ jobs:
           fi
           BIN_DIR="$(dirname "$EXE_PATH")"
           echo "BIN_DIR detectado: $BIN_DIR"
-
-          # 2) Cria pasta bundle/ (EXEs na raiz)
+      
+          # 2) Pasta final "flat"
+          rm -rf bundle
           mkdir -p bundle
           cp -v "$BIN_DIR"/qemu*.exe bundle/ || true
-
-          # 3) Leva também 'share/qemu' (ROMs/firmware/gui files)
+      
+          # 3) share/qemu (ROMs/firmware/gui files)
           if [ -d "$MINGW_PREFIX/share/qemu" ]; then
             mkdir -p bundle/share
             cp -r "$MINGW_PREFIX/share/qemu" "bundle/share/"
           fi
-          # Se a instalação já tiver share dentro de dist, preferir essa:
           if [ -d "$(dirname "$BIN_DIR")/share/qemu" ]; then
             mkdir -p bundle/share
-            rsync -a --ignore-existing "$(dirname "$BIN_DIR")/share/qemu" "bundle/share/" || cp -r "$(dirname "$BIN_DIR")/share/qemu" "bundle/share/" || true
+            rsync -a --ignore-existing "$(dirname "$BIN_DIR")/share/qemu" "bundle/share/" \
+              || cp -r "$(dirname "$BIN_DIR")/share/qemu" "bundle/share/" || true
           fi
-
-          # 4) Resolver dependências com ntldd (recursivo) e copiar para bundle/
+      
+          # 4) Resolver dependências com ntldd (SEM filtrar por pasta)
           mapfile -t DEPS < <(
             find bundle -maxdepth 1 -type f -name '*.exe' -print0 |
             xargs -0 -I{} ntldd -R "{}" |
-            awk '/=>/ {print $3}' |
-            grep -iE '/(mingw64|ucrt64)/bin/.*\.dll$' |
+            sed -n 's/.*=> \([^ ]*\.dll\).*/\1/p' |
+            sed 's#\\#/#g' |           # normaliza C:\ -> C:/
+            awk 'NF && $0 ~ /\.dll$/ {print}' |
             sort -u
           )
           for d in "${DEPS[@]}"; do
@@ -145,23 +147,26 @@ jobs:
               cp -n "$d" bundle/
             fi
           done
-
-          # 5) Fallback: copiar um conjunto de DLLs “comuns” se existirem
+      
+          # 5) Fallback: DLLs comuns que alguns sistemas não resolvem via ntldd
           for dll in \
             libbz2-1.dll zlib1.dll libzstd.dll \
             libncursesw6.dll libreadline8.dll \
             libwinpthread-1.dll libstdc++-6.dll libgcc_s_seh-1.dll \
             SDL2.dll \
-            libglib-2.0-0.dll libgobject-2.0-0.dll libgmodule-2.0-0.dll libgthread-2.0-0.dll libintl-8.dll libiconv-2.dll libpcre2-8-0.dll \
+            libglib-2.0-0.dll libgobject-2.0-0.dll libgmodule-2.0-0.dll libgthread-2.0-0.dll \
+            libgio-2.0-0.dll libintl-8.dll libiconv-2.dll libpcre2-8-0.dll \
             libpixman-1-0.dll libslirp-0.dll \
             libgnutls-30.dll libssh.dll \
             libcapstone.dll \
+            libjpeg-8.dll libpng16-16.dll libffi-8.dll \
           ; do
             [ -f "/mingw64/bin/$dll" ] && cp -n "/mingw64/bin/$dll" bundle/ || true
           done
-
+      
           echo "Conteúdo final da pasta bundle/:"
           ls -al bundle
+
 
       # ---- PACKAGE ----
       - name: Gerar ZIP
