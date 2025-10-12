@@ -18,7 +18,7 @@ on:
         type: string
 
 permissions:
-  contents: write   # necessário para criar tag/release e anexar asset
+  contents: write
 
 jobs:
   build-release:
@@ -63,6 +63,8 @@ jobs:
             mingw-w64-x86_64-ninja
             mingw-w64-x86_64-meson
             mingw-w64-x86_64-ntldd
+            mingw-w64-x86_64-bzip2
+            mingw-w64-x86_64-ncurses
 
       - name: Versões das ferramentas
         shell: msys2 {0}
@@ -77,7 +79,6 @@ jobs:
       - name: Configure (legacy ./configure)
         shell: msys2 {0}
         run: |
-          pwd
           ./configure \
             --prefix=$MINGW_PREFIX \
             --target-list=xtensa-softmmu \
@@ -96,44 +97,78 @@ jobs:
       - name: Install to staging (DESTDIR)
         shell: msys2 {0}
         run: |
-          rm -rf dist
+          rm -rf dist bundle
           mkdir -p dist
           make install DESTDIR="$(pwd)/dist"
-          # Opcional: garantir que o diretório bin existe
-          test -d "dist/$MINGW_PREFIX/bin" || mkdir -p "dist/$MINGW_PREFIX/bin"
 
-      # ---- BUNDLE DLLs ----
-      - name: Bundle runtime DLLs (copiar dependências para bin)
+      # ---- NORMALIZAR LAYOUT + COPIAR DLLs ----
+      - name: Criar bundle “flat” + copiar DLLs de runtime
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          BIN_DIR="dist/$MINGW_PREFIX/bin"
-          test -d "$BIN_DIR"
-          # Coleta dependências de todos .exe/.dll instalados no bin
+
+          # 1) Descobre onde os EXEs foram instalados
+          EXE_PATH="$(find dist -type f -name 'qemu-system-xtensa*.exe' -print -quit || true)"
+          if [ -z "$EXE_PATH" ]; then
+            echo "qemu-system-xtensa*.exe não encontrado em dist/"
+            find dist -maxdepth 3 -type f | sed 's/^/  - /'
+            exit 1
+          fi
+          BIN_DIR="$(dirname "$EXE_PATH")"
+          echo "BIN_DIR detectado: $BIN_DIR"
+
+          # 2) Cria pasta bundle/ (EXEs na raiz)
+          mkdir -p bundle
+          cp -v "$BIN_DIR"/qemu*.exe bundle/ || true
+
+          # 3) Leva também 'share/qemu' (ROMs/firmware/gui files)
+          if [ -d "$MINGW_PREFIX/share/qemu" ]; then
+            mkdir -p bundle/share
+            cp -r "$MINGW_PREFIX/share/qemu" "bundle/share/"
+          fi
+          # Se a instalação já tiver share dentro de dist, preferir essa:
+          if [ -d "$(dirname "$BIN_DIR")/share/qemu" ]; then
+            mkdir -p bundle/share
+            rsync -a --ignore-existing "$(dirname "$BIN_DIR")/share/qemu" "bundle/share/" || cp -r "$(dirname "$BIN_DIR")/share/qemu" "bundle/share/" || true
+          fi
+
+          # 4) Resolver dependências com ntldd (recursivo) e copiar para bundle/
           mapfile -t DEPS < <(
-            find "$BIN_DIR" -maxdepth 1 -type f \( -name '*.exe' -o -name '*.dll' \) -print0 |
+            find bundle -maxdepth 1 -type f -name '*.exe' -print0 |
             xargs -0 -I{} ntldd -R "{}" |
-            sed -n 's/.* => \(.*mingw64\/bin\/[^ ]*\) .*/\1/p' |
+            awk '/=>/ {print $3}' |
+            grep -iE '/(mingw64|ucrt64)/bin/.*\.dll$' |
             sort -u
           )
           for d in "${DEPS[@]}"; do
             if [ -f "$d" ]; then
-              cp -n "$d" "$BIN_DIR/"
+              cp -n "$d" bundle/
             fi
           done
-          echo "DLLs empacotadas em: $BIN_DIR"
-          # Dica: copie também share/qemu se existir (bios/roms etc.):
-          if [ -d "$MINGW_PREFIX/share/qemu" ] && [ ! -d "dist/$MINGW_PREFIX/share/qemu" ]; then
-            mkdir -p "dist/$MINGW_PREFIX/share"
-            cp -r "$MINGW_PREFIX/share/qemu" "dist/$MINGW_PREFIX/share/"
-          fi
+
+          # 5) Fallback: copiar um conjunto de DLLs “comuns” se existirem
+          for dll in \
+            libbz2-1.dll zlib1.dll libzstd.dll \
+            libncursesw6.dll libreadline8.dll \
+            libwinpthread-1.dll libstdc++-6.dll libgcc_s_seh-1.dll \
+            SDL2.dll \
+            libglib-2.0-0.dll libgobject-2.0-0.dll libgmodule-2.0-0.dll libgthread-2.0-0.dll libintl-8.dll libiconv-2.dll libpcre2-8-0.dll \
+            libpixman-1-0.dll libslirp-0.dll \
+            libgnutls-30.dll libssh.dll \
+            libcapstone.dll \
+          ; do
+            [ -f "/mingw64/bin/$dll" ] && cp -n "/mingw64/bin/$dll" bundle/ || true
+          done
+
+          echo "Conteúdo final da pasta bundle/:"
+          ls -al bundle
 
       # ---- PACKAGE ----
       - name: Gerar ZIP
         shell: pwsh
         run: |
           if (Test-Path "${{ env.ZIP_NAME }}") { Remove-Item "${{ env.ZIP_NAME }}" }
-          Compress-Archive -Path dist\* -DestinationPath "${{ env.ZIP_NAME }}"
+          Compress-Archive -Path bundle\* -DestinationPath "${{ env.ZIP_NAME }}"
 
       - name: Upload artifact (CI)
         uses: actions/upload-artifact@v4
