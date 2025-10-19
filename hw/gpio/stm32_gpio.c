@@ -82,7 +82,7 @@ static uint16_t readInputs( int32_t port )
     if( !waitEvent() ) return 0;
 
     m_arena->data8  = port;
-    m_arena->time   = qemuTime;
+    m_arena->simuTime = qemuTime;
     m_arena->action = ARM_GPIO_IN;
 
     while( m_arena->action ) // Wait for read completed
@@ -103,7 +103,7 @@ static void stm32_gpio_write_CRx( uint32_t value, uint8_t shift, uint8_t port )
     m_arena->data32 = value;
     m_arena->mask8  = shift;
     m_arena->data8  = port;     // We have to send Port number, PortA = 1
-    m_arena->time   = qemuTime;
+    m_arena->simuTime = qemuTime;
 }
 
 static void stm32_gpio_write_ODR( uint32_t new_value, uint8_t port )
@@ -116,7 +116,7 @@ static void stm32_gpio_write_ODR( uint32_t new_value, uint8_t port )
     m_arena->action = ARM_GPIO_OUT;
     m_arena->data16 = new_value;   // 1 bit per pin: 1 = High
     m_arena->data8  = port;  // We have to send Port number, PortA = 1
-    m_arena->time   = qemuTime;
+    m_arena->simuTime = qemuTime;
 }
 
 static uint64_t stm32_gpio_read( void *opaque, hwaddr offset, unsigned size )

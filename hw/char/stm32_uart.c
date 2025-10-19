@@ -120,7 +120,7 @@ static void stm32_uart_baud_update( Stm32Uart *s ) // Update the baud rate based
     m_arena->data8  = SIM_USART_BAUD;
     m_arena->data16 = s->id;          // Uart number
     m_arena->data32 = s->bits_per_sec;
-    m_arena->time   = qemuTime;       // time in ps
+    m_arena->simuTime = qemuTime;       // time in ps
 
     /* We assume 10 bits per character. This may not be exactly accurate depending on settings, but it should be good enough. */
     s->ns_per_char = 10 * 1000000000LL / s->bits_per_sec;
@@ -176,7 +176,7 @@ static void stm32_uart_start_tx( Stm32Uart *s ) // Start transmitting a byte.
     m_arena->data8  = SIM_USART_WRITE;
     m_arena->data16 = s->id;        // Uart number
     m_arena->data32 = s->TDR_r;
-    m_arena->time   = time_ns*1000; // time in ps
+    m_arena->simuTime = time_ns*1000; // time in ps
 
     timer_mod( s->tx_timer, time_ns + s->ns_per_char ); // Start the transmit delay timer.
 }

@@ -39,6 +39,7 @@ volatile qemuArena_t* m_arena = NULL;
 uint64_t m_timeout;
 uint64_t m_resetEvent;
 uint64_t m_ClkPeriod;
+uint64_t m_lastQemuTime;
 
 QEMUTimer* qtimer;
 
@@ -49,11 +50,37 @@ uint64_t getQemu_ps(void)
     return qemuTime-m_resetEvent;
 }
 
+void waitForTime(void)
+{
+    //printf("Qemu: waiting for Time \n"); fflush( stdout );
+    while( m_arena->qemuTime == 0 )  // Wait for simulide to set next time
+    {
+        m_timeout += 1;
+        if( m_timeout > 1e9 ) break; // Terminate loop if timed out
+    }
+    m_timeout = 0;
+
+    uint64_t nextTime = m_arena->qemuTime/1000;
+    /// if( nextTime > 1e9 )
+    ///     nextTime = qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL ) + m_ClkPeriod;
+
+    if( m_lastQemuTime != nextTime )
+    {
+        m_lastQemuTime = nextTime;
+        timer_mod_ns( qtimer, nextTime );
+
+    }
+    //printf("Qemu: waitForTime next %lu\n", m_lastQemuTime ); fflush( stdout );
+}
+
 bool waitEvent(void)
 {
     /// Here we can listen to simulide input events
+    //printf("Qemu: waitEvent at %lu pending %i at %lu\n",
+    //       qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL ),
+    //       m_arena->action, m_arena->simuTime/1000  ); fflush( stdout );
 
-    while( m_arena->time )  // An event is pending, Wait for QemuDevice::runEvent()
+    while( m_arena->simuTime )  // An event is pending, Wait for QemuDevice::runEvent()
     {
         m_timeout += 1;
         if( m_timeout > 1e9 ) break; // Terminate process if timed out
@@ -64,14 +91,24 @@ bool waitEvent(void)
     return true;
 }
 
-static void user_timeout_cb( void* opaque )
+static void simu_event( void* opaque )
 {
-    int64_t now = qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL );
-    timer_mod_ns( qtimer, now + m_ClkPeriod );
-
+    //printf("Qemu: simu_event at %lu\n", qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL ) ); fflush( stdout );
     if( !waitEvent() ) return;
-    //printf("timeout_cb \n" ); fflush( stdout );
-    m_arena->time = getQemu_ps(); // ps
+
+    m_arena->simuTime = getQemu_ps(); // ps
+    m_arena->action = SIM_EVENT;
+
+    while( m_arena->action )  // Wait for simulide to execute action
+    {
+        m_timeout += 1;
+        if( m_timeout > 1e9 ) break; // Terminate loop if timed out
+    }
+    m_timeout = 0;
+    m_arena->simuTime = 0;
+
+    //printf("Qemu: simu_event at %lu\n", qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL ) ); fflush( stdout );
+    waitForTime();
 }
 
 int simuMain( int argc, char** argv )
@@ -112,12 +149,10 @@ int simuMain( int argc, char** argv )
 
     if( !arena )
     {
-        printf("Qemu: Error mapping arena\n");
+        printf("Qemu: Error mapping arena\n"); fflush( stdout );
         return 1;
     }
     else printf("Qemu: arena mapped %i bytes\n", shMemSize );
-
-    fflush( stdout );
 
     //------------------------------------------------------------------
 
@@ -125,7 +160,7 @@ int simuMain( int argc, char** argv )
 
     //------------------------------------------------------------------
 
-    m_ClkPeriod = 1*1000*1000; // ~1 ms
+    m_ClkPeriod = 100*1000; // 100 us              //*1000; // ~1 ms
 
     printf("-----------------------------------\n");
     for( int i=0; i<argc; i++)
@@ -140,14 +175,20 @@ int simuMain( int argc, char** argv )
     qemu_init( argc, argv );
 
     qtimer = (QEMUTimer*)malloc( sizeof(QEMUTimer) );
-    timer_init_full( qtimer, NULL, QEMU_CLOCK_VIRTUAL, 1, 0, user_timeout_cb, NULL );
+    timer_init_full( qtimer, NULL, QEMU_CLOCK_VIRTUAL, 1, 0, simu_event, NULL );
 
     m_resetEvent = qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL );
-    timer_mod_ns( qtimer, m_resetEvent + m_ClkPeriod );
+    m_lastQemuTime = m_resetEvent;
 
+    //timer_mod_ns( qtimer, m_resetEvent + m_ClkPeriod );
+    printf("Qemu: resetEvent %lu\n", m_resetEvent );
     m_arena->state = 1;  // QemuDevice::stamp() unblocked here
 
-    usleep( 1*1000 );   // Let Simulation fully start running
+    //usleep( 1*1000 );   // Let Simulation fully start running
+
+    //printf("Qemu: waiting for time\n");fflush( stdout );
+    //simu_event( NULL );
+    waitForTime();
 
     printf("Qemu: starting main loop\n");fflush( stdout );
 

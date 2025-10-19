@@ -304,20 +304,20 @@ void stm32_init(ram_addr_t flash_size, ram_addr_t ram_size,
                 const char *kernel_filename, uint32_t osc_freq,
                 uint32_t osc32_freq, Clock *sysclk)
 {
-  DeviceState *dev;
+    DeviceState *dev;
 
-  dev = qdev_new(TYPE_STM32F103_SOC);
-  qdev_prop_set_string(dev, "cpu-type", ARM_CPU_TYPE_NAME("cortex-m3"));
+    dev = qdev_new(TYPE_STM32F103_SOC);
+    qdev_prop_set_string(dev, "cpu-type", ARM_CPU_TYPE_NAME("cortex-m3"));
 
- if( kernel_filename)
-    qdev_prop_set_string(dev, "kernel-file", kernel_filename);
+    if( kernel_filename)
+        qdev_prop_set_string(dev, "kernel-file", kernel_filename);
 
-  qdev_prop_set_uint64(  dev, "flash_size", flash_size);
-  qdev_prop_set_uint64(  dev, "ram_size"  , ram_size);
-  qdev_prop_set_uint32(  dev, "osc_freq"  , osc_freq);
-  qdev_prop_set_uint32(  dev, "osc32_freq", osc32_freq);
-  qdev_connect_clock_in( dev, "sysclk"    , sysclk);
-  sysbus_realize_and_unref( SYS_BUS_DEVICE(dev), &error_fatal );
+    qdev_prop_set_uint64(  dev, "flash_size", flash_size);
+    qdev_prop_set_uint64(  dev, "ram_size"  , ram_size);
+    qdev_prop_set_uint32(  dev, "osc_freq"  , osc_freq);
+    qdev_prop_set_uint32(  dev, "osc32_freq", osc32_freq);
+    qdev_connect_clock_in( dev, "sysclk"    , sysclk);
+    sysbus_realize_and_unref( SYS_BUS_DEVICE(dev), &error_fatal );
 }
 
 static MemTxResult dwt_write(void *opaque, hwaddr addr, uint64_t value, unsigned size, MemTxAttrs attrs)

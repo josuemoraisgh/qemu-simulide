@@ -48,6 +48,9 @@ int64_t icount_get_raw(void);
 
 /* return the virtual CPU time in ns, based on the instruction counter. */
 int64_t icount_get(void);
+
+/* return the virtual CPU time in ps, based on the instruction counter. */
+uint64_t icount_get_ps(void);
 /*
  * convert an instruction counter value to ns, based on the icount shift.
  * This shift is set as a fixed value with the icount "shift" option
