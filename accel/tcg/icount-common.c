@@ -38,6 +38,8 @@
 #include "sysemu/cpu-timers.h"
 #include "sysemu/cpu-timers-internal.h"
 
+#include "../../system/simuliface.h"
+
 /*
  * ICOUNT: Instruction Counter
  *
@@ -46,7 +48,7 @@
  */
 static bool icount_sleep = true;
 /* Arbitrarily pick 1MIPS as the minimum allowable speed.  */
-#define MAX_ICOUNT_SHIFT 10
+#define MAX_ICOUNT_SHIFT 0xFFFFFFFF//10
 
 /* Do not count executed instructions */
 ICountMode use_icount = ICOUNT_DISABLED;
@@ -152,9 +154,31 @@ int64_t icount_get(void)
     return icount;
 }
 
+uint64_t icount_get_ps(void)
+{
+    CPUState *cpu = current_cpu;
+
+    if( cpu && cpu->running )
+    {
+        int64_t executed = icount_get_executed(cpu);
+        cpu->icount_budget -= executed;
+        timers_state.qemu_icount += executed;
+    }
+    double icDoub = timers_state.qemu_icount;
+    icDoub *= m_arena->ps_per_inst; //+ timers_state.qemu_icount_bias; // + icount_to_ns(icount);
+
+    return (uint64_t)icDoub;
+}
+
 int64_t icount_to_ns(int64_t icount)
 {
-    return icount << qatomic_read(&timers_state.icount_time_shift);
+    double icDoub = ((double)icount * m_arena->ps_per_inst)/1000;
+    //int64_t count = icDoub/1000;
+
+    //icount *= qatomic_read(&timers_state.icount_time_shift);
+    //printf("icount_to_ns %li %li\n", icount, count ); fflush( stdout );
+
+    return (int64_t)icDoub;
 }
 
 /*
@@ -201,7 +225,7 @@ static void icount_adjust(void)
     timers_state.last_delta = delta;
     qatomic_set_i64(&timers_state.qemu_icount_bias,
                     cur_icount - (timers_state.qemu_icount
-                                  << timers_state.icount_time_shift));
+                                  * timers_state.icount_time_shift));
     seqlock_write_unlock(&timers_state.vm_clock_seqlock,
                          &timers_state.vm_clock_lock);
 }
@@ -223,8 +247,15 @@ static void icount_adjust_vm(void *opaque)
 
 int64_t icount_round(int64_t count)
 {
-    int shift = qatomic_read(&timers_state.icount_time_shift);
-    return (count + (1 << shift) - 1) >> shift;
+    //int shift = qatomic_read(&timers_state.icount_time_shift);
+    //int64_t round = (count + (1 + shift) - 1) / shift;
+    //printf("Qemu icount_round. %li %li\n", count, round);
+
+    double icDoub = ((double)count*1000)/m_arena->ps_per_inst;
+    int64_t rCount = icDoub+1;
+
+    //printf("Qemu icount_round. %li %li\n", count/14+1, rCount);
+    return rCount; //count/14+1;//rCount; // round;
 }
 
 static void icount_warp_rt(void)

@@ -29,6 +29,8 @@
 #include "sysemu/sysemu.h"
 #include "hw/irq.h"
 
+#include "sysemu/cpu-timers.h"
+
 // ------------------------------------------------
 // -------- ARENA ---------------------------------
 
@@ -37,16 +39,16 @@ volatile qemuArena_t* m_arena = NULL;
 // ------------------------------------------------
 
 uint64_t m_timeout;
-uint64_t m_resetEvent;
+//uint64_t m_resetEvent;
 uint64_t m_ClkPeriod;
 
 QEMUTimer* qtimer;
 
 uint64_t getQemu_ps(void)
 {
-    uint64_t qemuTime = qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL ); // ns
-    qemuTime *= 1000;
-    return qemuTime-m_resetEvent;
+    uint64_t qemuTime = icount_get_ps(); //qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL ); // ns cpu_get_clock(); //
+    //qemuTime *= 1000;
+    return qemuTime; //-m_resetEvent;
 }
 
 bool waitEvent(void)
@@ -70,7 +72,7 @@ static void user_timeout_cb( void* opaque )
     timer_mod_ns( qtimer, now + m_ClkPeriod );
 
     if( !waitEvent() ) return;
-    //printf("timeout_cb \n" ); fflush( stdout );
+    //printf("timeout_cb %lu\n", now ); fflush( stdout );
     m_arena->time = getQemu_ps(); // ps
 }
 
@@ -142,8 +144,8 @@ int simuMain( int argc, char** argv )
     qtimer = (QEMUTimer*)malloc( sizeof(QEMUTimer) );
     timer_init_full( qtimer, NULL, QEMU_CLOCK_VIRTUAL, 1, 0, user_timeout_cb, NULL );
 
-    m_resetEvent = qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL );
-    timer_mod_ns( qtimer, m_resetEvent + m_ClkPeriod );
+    //m_resetEvent = qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL );
+    timer_mod_ns( qtimer,  m_ClkPeriod );
 
     m_arena->state = 1;  // QemuDevice::stamp() unblocked here
 

@@ -29,6 +29,8 @@
 #include "hw/qdev-clock.h"
 #include <stdio.h>
 
+#include "../../system/simuliface.h"
+
 
 /* DEFINITIONS*/
 
@@ -758,6 +760,13 @@ static void stm32_rcc_hclk_upd_irq_handler(void *opaque, int n, int level)
          * system/external clock ticks.
          */
         //external_ref_clock_scale = NANOSECONDS_PER_SECOND / ext_ref_freq;
+
+        double ps_instr = (double)hclk_freq/1000000;
+        ps_instr = 1000000/ps_instr;
+        m_arena->ps_per_inst = ps_instr;
+
+        //printf("stm32_rcc_hclk %i %f\n", hclk_freq, m_arena->ps_per_inst );
+
         clock_set_hz(s->sysclk->source, hclk_freq*3); //FIXME simulation run slow after qemu updated. 
         clock_propagate(s->sysclk->source);  
     }

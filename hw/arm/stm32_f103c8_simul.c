@@ -85,7 +85,7 @@ static void stm32_f103c8_init( MachineState *machine )
 
    sysclk = clock_new( OBJECT(machine), "SYSCLK");
    clock_set_hz( sysclk, SYSCLK_FRQ );
-   stm32_init( FLASH_SIZE, RAM_SIZE, machine->kernel_filename, SYSCLK_FRQ/3, 32768, sysclk );
+   stm32_init( FLASH_SIZE, RAM_SIZE, machine->kernel_filename, 8000000, 32768, sysclk );
 
    s->gpio_a = DEVICE( object_resolve_path("/machine/stm32/gpio[a]" , NULL) );
    s->gpio_b = DEVICE( object_resolve_path("/machine/stm32/gpio[b]" , NULL) );
