@@ -39,7 +39,7 @@ static uint8_t i2c_iface_rx( I2CSlave *i2c )
     if( !waitEvent() ) return 0;
     //printf("i2c_rx %lu\n", qemuTime/1000000 );fflush( stdout );
 
-    m_arena->time = qemuTime;
+    m_arena->simuTime = qemuTime;
     return 0;
 }
 
@@ -55,7 +55,7 @@ static int i2c_iface_tx( I2CSlave *i2c, uint8_t data )
     m_arena->data8  = SIM_I2C_WRITE;
     m_arena->data16 = i2cI->id;
     m_arena->data32 = data;
-    m_arena->time   = qemuTime;
+    m_arena->simuTime = qemuTime;
 
     return 0;
 }
@@ -71,7 +71,7 @@ static int i2c_iface_ev( I2CSlave *i2c, enum i2c_event event )
     m_arena->action = SIM_I2C;
     m_arena->data8  = event;
     m_arena->data16 = i2cI->id;
-    m_arena->time   = qemuTime;
+    m_arena->simuTime = qemuTime;
 
     return 0;
 }
@@ -89,7 +89,7 @@ static bool i2c_iface_match( I2CSlave *candidate, uint8_t address, bool b, I2CNo
     m_arena->data8  = SIM_I2C_MATCH;
     m_arena->data16 = i2cI->id;
     m_arena->data32 = address;
-    m_arena->time   = qemuTime;
+    m_arena->simuTime = qemuTime;
 
     // Always return true
     i2cI->device_addr = address;

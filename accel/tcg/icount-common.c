@@ -248,13 +248,12 @@ static void icount_adjust_vm(void *opaque)
 int64_t icount_round(int64_t count)
 {
     //int shift = qatomic_read(&timers_state.icount_time_shift);
-    //int64_t round = (count + (1 + shift) - 1) / shift;
-    //printf("Qemu icount_round. %li %li\n", count, round);
+    //int64_t round = (count + (1 << shift) - 1) >> shift;
 
     double icDoub = ((double)count*1000)/m_arena->ps_per_inst;
     int64_t rCount = icDoub+1;
+    //printf("Qemu icount_round. %f %li %li\n", m_arena->ps_per_inst, count, rCount  );
 
-    //printf("Qemu icount_round. %li %li\n", count/14+1, rCount);
     return rCount; //count/14+1;//rCount; // round;
 }
 

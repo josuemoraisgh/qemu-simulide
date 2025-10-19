@@ -15,7 +15,8 @@
 // -------- ARENA ---------------------------------
 
 typedef struct qemuArena{
-    uint64_t time;
+    uint64_t simuTime;    // in ps
+    uint64_t qemuTime;    // in ps
     uint32_t data32;
     uint32_t mask32;
     uint16_t data16;
@@ -44,7 +45,8 @@ enum arm32Actions{
 
 enum simuAction{
     SIM_I2C=10,
-    SIM_USART
+    SIM_USART,
+    SIM_EVENT=1<<7,
 };
 
 enum simuI2c_action {
@@ -72,6 +74,7 @@ extern uint64_t m_timeout;
 uint64_t getQemu_ps(void);
 
 bool waitEvent(void);
+void waitForTime(void);
 
 int simuMain( int argc, char** argv );
 
