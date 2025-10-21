@@ -63,11 +63,32 @@ typedef struct
    DeviceState *adc2;
 } Stm32_F103c8_Mcu;
 
+Stm32_F103c8_Mcu* s;
+
 //#define QEMU_INTERNAL_UART0_BAUD 7
 //#define QEMU_INTERNAL_UART1_BAUD 8
 //#define QEMU_INTERNAL_UART2_BAUD 9
 
 uint32_t stm32_uart_baud_rate(void *opaque);
+void stm32_uart_receive( Stm32Uart* uart, const uint8_t data );
+void stm32_f103c8_uart_action(void);
+
+void stm32_f103c8_uart_action(void)
+{
+    //sw
+    Stm32Uart* uart = NULL;
+
+    int id = m_arena->data8;
+    uint16_t data = m_arena->data16;
+
+    switch (id)
+    {
+    case 0: uart = (Stm32Uart*)s->uart1; break;
+    case 1: uart = (Stm32Uart*)s->uart2; break;
+    case 2: uart = (Stm32Uart*)s->uart3; break;
+    }
+    stm32_uart_receive( uart, data );
+}
 
 /// TODO: flash and ram sizes configurable ???
 #define FLASH_SIZE 0x00020000
@@ -81,7 +102,7 @@ static void stm32_f103c8_init( MachineState *machine )
 
    //uint32_t freq = getFrequency();
 
-   Stm32_F103c8_Mcu* s = (Stm32_F103c8_Mcu*)g_malloc0( sizeof(Stm32_F103c8_Mcu) );
+   s = (Stm32_F103c8_Mcu*)g_malloc0( sizeof(Stm32_F103c8_Mcu) );
 
    sysclk = clock_new( OBJECT(machine), "SYSCLK");
    clock_set_hz( sysclk, SYSCLK_FRQ );

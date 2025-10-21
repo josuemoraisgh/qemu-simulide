@@ -113,17 +113,20 @@ static void stm32_uart_baud_update( Stm32Uart *s ) // Update the baud rate based
     if( s->BRR_r && clk_freq ) s->bits_per_sec = clk_freq / s->BRR_r;
     else                       s->bits_per_sec = 9600; //use 0 cause simulation freeze because use timer with 0 delay
 
+    /* We assume 10 bits per character. This may not be exactly accurate depending on settings, but it should be good enough. */
+    s->ns_per_char = 10 * 1000000000LL / s->bits_per_sec;
+
+
     uint64_t qemuTime = getQemu_ps();
     if( !waitEvent() ) return;        // Wait until SimulIDE is free
 
-    m_arena->action = SIM_USART;
+    m_arena->simuAction = SIM_USART;
     m_arena->data8  = SIM_USART_BAUD;
     m_arena->data16 = s->id;          // Uart number
     m_arena->data32 = s->bits_per_sec;
     m_arena->simuTime = qemuTime;       // time in ps
 
-    /* We assume 10 bits per character. This may not be exactly accurate depending on settings, but it should be good enough. */
-    s->ns_per_char = 10 * 1000000000LL / s->bits_per_sec;
+    waitForTime();
 }
 
 static void stm32_uart_clk_irq_handler( void *opaque, int n, int level ) // Handle a change in the peripheral clock.
@@ -172,11 +175,13 @@ static void stm32_uart_start_tx( Stm32Uart *s ) // Start transmitting a byte.
 
     if( !waitEvent() ) return;       // Wait until SimulIDE is free
 
-    m_arena->action = SIM_USART;
+    m_arena->simuAction = SIM_USART;
     m_arena->data8  = SIM_USART_WRITE;
     m_arena->data16 = s->id;        // Uart number
     m_arena->data32 = s->TDR_r;
     m_arena->simuTime = time_ns*1000; // time in ps
+
+    waitForTime();
 
     timer_mod( s->tx_timer, time_ns + s->ns_per_char ); // Start the transmit delay timer.
 }
@@ -213,10 +218,13 @@ static void stm32_uart_tx_dma_timer_expire( void *opaque ) /* DMA tx delay */
     }
 }
 
-void stm32_uart_receive( void *opaque, const uint8_t *buf, int size );
+void stm32_uart_receive( Stm32Uart* uart, const uint8_t data );
 
-void stm32_uart_receive( void *opaque, const uint8_t *buf, int size )
+void stm32_uart_receive( Stm32Uart* uart, const uint8_t data )
 {
+    printf("Qemu: stm32_uart_receive %u %u\n", uart->id, data );
+    printf("      at time %lu\n", getQemu_ps() ); fflush( stdout );
+
     //Stm32Uart *s = (Stm32Uart *)opaque;
     //uint64_t curr_time = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
 
