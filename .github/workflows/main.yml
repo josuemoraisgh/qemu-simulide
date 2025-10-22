@@ -1,86 +1,9 @@
-name: MinGW Build & Release (qemu-simulide)
-
-on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Versão/Tag (ex.: v0.1.0)"
-        required: true
-        type: string
-      prerelease:
-        description: "Marcar como pré-release?"
-        required: false
-        default: false
-        type: boolean
-      notes:
-        description: "Notas da release (opcional)"
-        required: false
-        type: string
-
-permissions:
-  contents: write
-
-jobs:
-  build-release:
-    runs-on: windows-latest
-
-    env:
-      ZIP_NAME: qemu-simulide-windows-mingw64-${{ inputs.version }}.zip
-
-    steps:
-      - name: Habilitar long paths no Git
-        run: |
-          git config --system core.longpaths true
-          git config --global core.longpaths true
-
-      - name: Checkout (sem submódulos)
-        uses: actions/checkout@v4
-        with:
-          submodules: false
-          fetch-depth: 0
-
-      - name: Setup MSYS2 (MINGW64)
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            git
-            base-devel
-            mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-python
-            mingw-w64-x86_64-pkgconf
-            mingw-w64-x86_64-glib2
-            mingw-w64-x86_64-pixman
-            mingw-w64-x86_64-SDL2
-            mingw-w64-x86_64-libslirp
-            mingw-w64-x86_64-gnutls
-            mingw-w64-x86_64-libssh
-            mingw-w64-x86_64-zlib
-            mingw-w64-x86_64-libpng
-            mingw-w64-x86_64-libjpeg-turbo
-            mingw-w64-x86_64-capstone
-            mingw-w64-x86_64-ninja
-            mingw-w64-x86_64-meson
-            mingw-w64-x86_64-ntldd
-            mingw-w64-x86_64-bzip2
-            mingw-w64-x86_64-ncurses
-
-      - name: Versões das ferramentas
-        shell: msys2 {0}
-        run: |
-          which gcc && gcc --version
-          which python3 && python3 --version
-          which meson && meson --version
-          which ninja && ninja --version
-          which ntldd && ntldd --version
-
-      - name: Detectar campos do qemuArena_t e setar CFLAGS (action/time -> nomes atuais)
+      - name: Detectar campos do qemuArena_t e setar CFLAGS (auto a partir do header)
         shell: msys2 {0}
         run: |
           set -euo pipefail
 
-          # 1) Encontrar o header que define qemuArena_t
+          # 1) Localizar o header com a definição de qemuArena_t
           ARENA_HDR="$(grep -RIl --include='*.h' 'typedef struct qemuArena' || true)"
           if [ -z "${ARENA_HDR}" ]; then
             echo "Não achei o header do qemuArena_t. Candidatos por 'qemuArena_t':"
@@ -89,11 +12,42 @@ jobs:
           fi
           echo "Header do qemuArena_t: ${ARENA_HDR}"
 
-          # 2) Candidatos prováveis
-          ACTION_CANDS="op cmd event state action"
-          TIME_CANDS="ts timestamp time_ns ticks tstamp time"
+          # 2) Extrair os nomes de membros do struct qemuArena_t do header real
+          #    Captura o bloco entre 'typedef struct qemuArena' e o próximo '};'
+          #    e lista o último identificador por linha (nome do campo).
+          rm -f /tmp/_arena_fields.txt
+          awk '
+            /typedef[[:space:]]+struct[[:space:]]+qemuArena/ {inblk=1; next}
+            inblk && /};/ {inblk=0}
+            inblk {
+              line=$0
+              # remove comentários simples
+              sub(/\/\/.*/,"",line)
+              sub(/\/\*.*\*\//,"",line)
+              # ignora linhas vazias e chaves
+              if (line ~ /^[[:space:]]*$/) next
+              if (line ~ /^[[:space:]]*{/ ) next
+              # pega o último token antes do ';'
+              if (line ~ /;/) {
+                sub(/.*[[:space:]\*]([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*;.*/,"\\1",line)
+                # filtra prováveis não-campos (p.ex. typedefs internos)
+                if (line ~ /^[A-Za-z_][A-Za-z0-9_]*$/) print line
+              }
+            }
+          ' "${ARENA_HDR}" | sort -u > /tmp/_arena_fields.txt
 
-          # 3) Testar dupla (A,T) compilando um probe (sem heredoc)
+          echo "Campos detectados no qemuArena_t:"
+          cat /tmp/_arena_fields.txt || true
+
+          # 3) Se não achou nada via parsing, tenta fallback com candidatos comuns
+          if [ ! -s /tmp/_arena_fields.txt ]; then
+            printf '%s\n' op cmd event state action ts timestamp time_ns ticks tstamp time > /tmp/_arena_fields.txt
+            echo "Aviso: não consegui parsear o struct. Usando lista de fallback."
+          fi
+
+          mapfile -t FIELDS < /tmp/_arena_fields.txt
+
+          # 4) Função para testar um par (A,T) compilando um probe mínimo
           test_pair () {
             A="$1"; T="$2"
             rm -f /tmp/_probe.c /tmp/_probe.o
@@ -103,10 +57,13 @@ jobs:
             gcc -m64 -c /tmp/_probe.c -o /tmp/_probe.o >/dev/null 2>&1
           }
 
+          # 5) Tentar todas as combinações de (action_field, time_field)
           FOUND_A=""
           FOUND_T=""
-          for A in ${ACTION_CANDS}; do
-            for T in ${TIME_CANDS}; do
+          for A in "${FIELDS[@]}"; do
+            for T in "${FIELDS[@]}"; do
+              # Evita testar o mesmo campo para os dois papéis
+              if [ "${A}" = "${T}" ]; then continue; fi
               if test_pair "${A}" "${T}"; then
                 FOUND_A="${A}"
                 FOUND_T="${T}"
@@ -117,131 +74,11 @@ jobs:
 
           if [ -z "${FOUND_A}" ] || [ -z "${FOUND_T}" ]; then
             echo "Falhou a detecção automática dos campos do qemuArena_t."
-            echo "Ajuste ACTION_CANDS/TIME_CANDS ou envie o header para patch exato."
+            echo "Campos vistos no header: "
+            printf ' - %s\n' "${FIELDS[@]}"
+            echo "Envie o conteúdo de ${ARENA_HDR} (apenas o typedef da struct) que eu te devolvo o mapeamento exato."
             exit 1
           fi
 
-          echo "Detectado: action -> ${FOUND_A}    time -> ${FOUND_T}"
+          echo "Mapeado com sucesso: action -> ${FOUND_A}    time -> ${FOUND_T}"
           echo "CFLAGS=-Daction=${FOUND_A} -Dtime=${FOUND_T}" >> "$GITHUB_ENV"
-
-      - name: Configure (legacy ./configure)
-        shell: msys2 {0}
-        env:
-          CFLAGS: ${{ env.CFLAGS }}
-        run: |
-          ./configure \
-            --prefix=$MINGW_PREFIX \
-            --target-list=xtensa-softmmu \
-            --enable-sdl \
-            --enable-slirp \
-            --enable-capstone \
-            --enable-gnutls \
-            --enable-libssh \
-            --disable-werror
-
-      - name: Build (make)
-        shell: msys2 {0}
-        env:
-          CFLAGS: ${{ env.CFLAGS }}
-        run: |
-          make -j"$(nproc)"
-
-      - name: Install to staging (DESTDIR)
-        shell: msys2 {0}
-        run: |
-          rm -rf dist bundle
-          mkdir -p dist
-          make install DESTDIR="$(pwd)/dist"
-
-      - name: Criar bundle flat + copiar DLLs de runtime
-        shell: msys2 {0}
-        run: |
-          set -euo pipefail
-
-          EXE_PATH="$(find dist -type f -name 'qemu-system-xtensa*.exe' -print -quit || true)"
-          if [ -z "${EXE_PATH}" ]; then
-            echo "qemu-system-xtensa*.exe não encontrado em dist/"
-            find dist -maxdepth 3 -type f | sed 's/^/  - /'
-            exit 1
-          fi
-          BIN_DIR="$(dirname "${EXE_PATH}")"
-          echo "BIN_DIR detectado: ${BIN_DIR}"
-
-          rm -rf bundle
-          mkdir -p bundle
-          cp -v "${BIN_DIR}"/qemu*.exe bundle/ || true
-
-          if [ -d "$MINGW_PREFIX/share/qemu" ]; then
-            mkdir -p bundle/share
-            cp -r "$MINGW_PREFIX/share/qemu" "bundle/share/"
-          fi
-          if [ -d "$(dirname "${BIN_DIR}")/share/qemu" ]; then
-            mkdir -p bundle/share
-            rsync -a --ignore-existing "$(dirname "${BIN_DIR}")/share/qemu" "bundle/share/" \
-              || cp -r "$(dirname "${BIN_DIR}")/share/qemu" "bundle/share/" || true
-          fi
-
-          mapfile -t DEPS < <(
-            find bundle -maxdepth 1 -type f -name '*.exe' -print0 |
-            xargs -0 -I{} ntldd -R "{}" |
-            sed -n 's/.*=> \([^ ]*\.dll\).*/\1/p' |
-            sed 's#\\#/#g' |
-            awk 'NF && $0 ~ /\.dll$/ {print}' |
-            sort -u
-          )
-          for d in "${DEPS[@]}"; do
-            if [ -f "$d" ]; then
-              cp -n "$d" bundle/
-            fi
-          done
-
-          for dll in \
-            libbz2-1.dll zlib1.dll libzstd.dll \
-            libncursesw6.dll libreadline8.dll \
-            libwinpthread-1.dll libstdc++-6.dll libgcc_s_seh-1.dll \
-            SDL2.dll \
-            libglib-2.0-0.dll libgobject-2.0-0.dll libgmodule-2.0-0.dll libgthread-2.0-0.dll \
-            libgio-2.0-0.dll libintl-8.dll libiconv-2.dll libpcre2-8-0.dll \
-            libpixman-1-0.dll libslirp-0.dll \
-            libgnutls-30.dll libssh.dll \
-            libcapstone.dll \
-            libjpeg-8.dll libpng16-16.dll libffi-8.dll \
-          ; do
-            [ -f "/mingw64/bin/$dll" ] && cp -n "/mingw64/bin/$dll" bundle/ || true
-          done
-
-          echo "Conteúdo final da pasta bundle/:"
-          ls -al bundle
-
-      - name: Gerar ZIP
-        shell: pwsh
-        run: |
-          if (Test-Path "${{ env.ZIP_NAME }}") { Remove-Item "${{ env.ZIP_NAME }}" }
-          Compress-Archive -Path bundle\* -DestinationPath "${{ env.ZIP_NAME }}"
-
-      - name: Upload artifact (CI)
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.ZIP_NAME }}
-          path: ${{ env.ZIP_NAME }}
-          if-no-files-found: error
-
-      - name: Criar Release com tag
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ inputs.version }}
-          name: qemu-simulide ${{ inputs.version }}
-          body: ${{ inputs.notes }}
-          prerelease: ${{ inputs.prerelease }}
-          target_commitish: ${{ github.sha }}
-          files: ${{ env.ZIP_NAME }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Show logs on failure (config.log / meson-log)
-        if: ${{ failure() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          { test -f config.log && echo "===== BEGIN config.log =====" && cat config.log && echo "===== END config.log ====="; } || echo "config.log not found."
-          { test -f build/meson-logs/meson-log.txt && echo "===== BEGIN meson-log.txt =====" && cat build/meson-logs/meson-log.txt && echo "===== END meson-log.txt ====="; } || echo "meson-log.txt not found."
