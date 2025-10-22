@@ -75,64 +75,53 @@ jobs:
           which ninja && ninja --version
           which ntldd && ntldd --version
 
-      # === NOVO: detecção automática dos campos do qemuArena_t e remapeamento via CFLAGS ===
       - name: Detectar campos do qemuArena_t e setar CFLAGS (action/time -> nomes atuais)
         shell: msys2 {0}
         run: |
           set -euo pipefail
 
-          # 1) Encontrar o header que define qemuArena_t
+          # Encontrar o header que define qemuArena_t
           ARENA_HDR="$(grep -RIl --include='*.h' 'typedef struct qemuArena' || true)"
-          if [ -z "$ARENA_HDR" ]; then
-            echo "Não achei o header do qemuArena_t. Mostrando candidatos por 'qemuArena_t':"
+          if [ -z "${ARENA_HDR}" ]; then
+            echo "Não achei o header do qemuArena_t. Candidatos por 'qemuArena_t':"
             grep -RIn --include='*.h' 'qemuArena_t' || true
             exit 1
           fi
-          echo "Header do qemuArena_t: $ARENA_HDR"
+          echo "Header do qemuArena_t: ${ARENA_HDR}"
 
-          # 2) Candidatos prováveis de nomes modernos
           ACTION_CANDS="op cmd event state action"
           TIME_CANDS="ts timestamp time_ns ticks tstamp time"
 
-          # 3) Função para testar uma dupla (A,T) compilando um probe simples
           test_pair () {
             A="$1"; T="$2"
-            cat > /tmp/_probe.c <<C_EOF
-            #include <stdint.h>
-            #include "${ARENA_HDR}"
-            int main(void){
-              volatile qemuArena_t *p = (volatile qemuArena_t*)0;
-              (void)p->${A};
-              (void)p->${T};
-              return 0;
-            }
-C_EOF
+            rm -f /tmp/_probe.c /tmp/_probe.o
+            printf '#include <stdint.h>\n' > /tmp/_probe.c
+            printf '#include "%s"\n' "${ARENA_HDR}" >> /tmp/_probe.c
+            printf 'int main(void){ volatile qemuArena_t *p=(volatile qemuArena_t*)0; (void)p->%s; (void)p->%s; return 0; }\n' "${A}" "${T}" >> /tmp/_probe.c
             gcc -m64 -c /tmp/_probe.c -o /tmp/_probe.o >/dev/null 2>&1
           }
 
           FOUND_A=""
           FOUND_T=""
-          for A in $ACTION_CANDS; do
-            for T in $TIME_CANDS; do
-              if test_pair "$A" "$T"; then
-                FOUND_A="$A"
-                FOUND_T="$T"
+          for A in ${ACTION_CANDS}; do
+            for T in ${TIME_CANDS}; do
+              if test_pair "${A}" "${T}"; then
+                FOUND_A="${A}"
+                FOUND_T="${T}"
                 break 2
               fi
             done
           done
 
-          if [ -z "$FOUND_A" ] || [ -z "$FOUND_T" ]; then
+          if [ -z "${FOUND_A}" ] || [ -z "${FOUND_T}" ]; then
             echo "Falhou a detecção automática dos campos do qemuArena_t."
-            echo "Ajuste ACTION_CANDS/TIME_CANDS acima, ou me envie o header para patch exato."
+            echo "Ajuste ACTION_CANDS/TIME_CANDS ou envie o header para patch exato."
             exit 1
           fi
 
           echo "Detectado: action -> ${FOUND_A}    time -> ${FOUND_T}"
-          # 4) Exportar CFLAGS para remapear tokens usados pelo esp32_gpio.c
           echo "CFLAGS=-Daction=${FOUND_A} -Dtime=${FOUND_T}" >> "$GITHUB_ENV"
 
-      # ---- BUILD (configure + make) ----
       - name: Configure (legacy ./configure)
         shell: msys2 {0}
         env:
@@ -162,39 +151,34 @@ C_EOF
           mkdir -p dist
           make install DESTDIR="$(pwd)/dist"
 
-      # ---- NORMALIZAR LAYOUT + COPIAR DLLs ----
       - name: Criar bundle flat + copiar DLLs de runtime
         shell: msys2 {0}
         run: |
           set -euo pipefail
 
-          # 1) Onde os EXEs foram instalados
           EXE_PATH="$(find dist -type f -name 'qemu-system-xtensa*.exe' -print -quit || true)"
-          if [ -z "$EXE_PATH" ]; then
+          if [ -z "${EXE_PATH}" ]; then
             echo "qemu-system-xtensa*.exe não encontrado em dist/"
             find dist -maxdepth 3 -type f | sed 's/^/  - /'
             exit 1
           fi
-          BIN_DIR="$(dirname "$EXE_PATH")"
-          echo "BIN_DIR detectado: $BIN_DIR"
+          BIN_DIR="$(dirname "${EXE_PATH}")"
+          echo "BIN_DIR detectado: ${BIN_DIR}"
 
-          # 2) Pasta final "flat"
           rm -rf bundle
           mkdir -p bundle
-          cp -v "$BIN_DIR"/qemu*.exe bundle/ || true
+          cp -v "${BIN_DIR}"/qemu*.exe bundle/ || true
 
-          # 3) share/qemu (ROMs/firmware/gui files)
           if [ -d "$MINGW_PREFIX/share/qemu" ]; then
             mkdir -p bundle/share
             cp -r "$MINGW_PREFIX/share/qemu" "bundle/share/"
           fi
-          if [ -d "$(dirname "$BIN_DIR")/share/qemu" ]; then
+          if [ -d "$(dirname "${BIN_DIR}")/share/qemu" ]; then
             mkdir -p bundle/share
-            rsync -a --ignore-existing "$(dirname "$BIN_DIR")/share/qemu" "bundle/share/" \
-              || cp -r "$(dirname "$BIN_DIR")/share/qemu" "bundle/share/" || true
+            rsync -a --ignore-existing "$(dirname "${BIN_DIR}")/share/qemu" "bundle/share/" \
+              || cp -r "$(dirname "${BIN_DIR}")/share/qemu" "bundle/share/" || true
           fi
 
-          # 4) Resolver dependências com ntldd (SEM filtrar por pasta)
           mapfile -t DEPS < <(
             find bundle -maxdepth 1 -type f -name '*.exe' -print0 |
             xargs -0 -I{} ntldd -R "{}" |
@@ -209,7 +193,6 @@ C_EOF
             fi
           done
 
-          # 5) Fallback: DLLs comuns
           for dll in \
             libbz2-1.dll zlib1.dll libzstd.dll \
             libncursesw6.dll libreadline8.dll \
@@ -228,7 +211,6 @@ C_EOF
           echo "Conteúdo final da pasta bundle/:"
           ls -al bundle
 
-      # ---- PACKAGE ----
       - name: Gerar ZIP
         shell: pwsh
         run: |
@@ -242,7 +224,6 @@ C_EOF
           path: ${{ env.ZIP_NAME }}
           if-no-files-found: error
 
-      # ---- CREATE TAG + RELEASE ----
       - name: Criar Release com tag
         uses: softprops/action-gh-release@v2
         with:
@@ -255,7 +236,6 @@ C_EOF
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ---- LOGS EM CASO DE FALHA ----
       - name: Show logs on failure (config.log / meson-log)
         if: ${{ failure() }}
         shell: bash
