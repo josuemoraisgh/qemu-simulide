@@ -27,6 +27,7 @@
 #include "qemu/timer.h"
 #include "sysemu/runstate.h"
 #include "sysemu/sysemu.h"
+#include "sysemu/cpu-timers.h"
 #include "hw/irq.h"
 
 // ------------------------------------------------
@@ -37,22 +38,24 @@ volatile qemuArena_t* m_arena = NULL;
 // ------------------------------------------------
 
 uint64_t m_timeout;
-uint64_t m_resetEvent;
+//uint64_t m_resetEvent;
 uint64_t m_ClkPeriod;
 uint64_t m_lastQemuTime;
+bool m_running;
 
 QEMUTimer* qtimer;
 
 uint64_t getQemu_ps(void)
 {
-    uint64_t qemuTime = qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL ); // ns
-    qemuTime *= 1000;
-    return qemuTime-m_resetEvent;
+    uint64_t qemuTime = icount_get_ps(); //qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL ); // ns //icount_get_ps; //
+    //qemuTime *= 1000;
+    return qemuTime;
 }
 
 void waitForTime(void)
 {
-    //printf("Qemu: waiting for Time \n"); fflush( stdout );
+    if( !m_running ) return;
+    //printf("Qemu: waiting for Time %lu\n", m_arena->qemuTime ); fflush( stdout );
     while( m_arena->qemuTime == 0 )  // Wait for simulide to set next time
     {
         m_timeout += 1;
@@ -66,11 +69,11 @@ void waitForTime(void)
 
     if( m_lastQemuTime != nextTime )
     {
+        //printf("Qemu: config timer at %lu\n", nextTime ); fflush( stdout );
         m_lastQemuTime = nextTime;
         timer_mod_ns( qtimer, nextTime );
-
     }
-    //printf("Qemu: waitForTime next %lu\n", m_lastQemuTime ); fflush( stdout );
+    //printf("Qemu: Next time %lu\n", m_lastQemuTime ); fflush( stdout );
 }
 
 bool waitEvent(void)
@@ -86,9 +89,8 @@ bool waitEvent(void)
         if( m_timeout > 1e9 ) break; // Terminate process if timed out
     }
     m_timeout = 0;
-    if( !m_arena->state ) return false;// Simulation stopped
 
-    return true;
+    return m_running;
 }
 
 static void simu_event( void* opaque )
@@ -97,15 +99,29 @@ static void simu_event( void* opaque )
     if( !waitEvent() ) return;
 
     m_arena->simuTime = getQemu_ps(); // ps
-    m_arena->action = SIM_EVENT;
+    m_arena->simuAction = SIM_EVENT;
 
-    while( m_arena->action )  // Wait for simulide to execute action
+    while( m_arena->simuAction )  // Wait for simulide to execute action
     {
         m_timeout += 1;
         if( m_timeout > 1e9 ) break; // Terminate loop if timed out
     }
     m_timeout = 0;
     m_arena->simuTime = 0;
+
+    if( m_arena->qemuAction != 0 )
+    {
+        //printf("Qemu: qemuAction %u %u\n", m_arena->qemuAction, m_arena->data8 );
+        //printf("      at time %lu\n", getQemu_ps() ); fflush( stdout );
+
+        switch( m_arena->qemuAction )
+        {
+        case SIM_I2C: break;
+        case SIM_USART: stm32_f103c8_uart_action(); break;
+        default: break;
+        }
+        m_arena->qemuAction = 0;
+    }
 
     //printf("Qemu: simu_event at %lu\n", qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL ) ); fflush( stdout );
     waitForTime();
@@ -161,6 +177,7 @@ int simuMain( int argc, char** argv )
     //------------------------------------------------------------------
 
     m_ClkPeriod = 100*1000; // 100 us              //*1000; // ~1 ms
+    m_running = false;
 
     printf("-----------------------------------\n");
     for( int i=0; i<argc; i++)
@@ -177,25 +194,22 @@ int simuMain( int argc, char** argv )
     qtimer = (QEMUTimer*)malloc( sizeof(QEMUTimer) );
     timer_init_full( qtimer, NULL, QEMU_CLOCK_VIRTUAL, 1, 0, simu_event, NULL );
 
-    m_resetEvent = qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL );
-    m_lastQemuTime = m_resetEvent;
+    //m_resetEvent = qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL );
+    m_lastQemuTime = 0; //m_resetEvent;
 
     //timer_mod_ns( qtimer, m_resetEvent + m_ClkPeriod );
-    printf("Qemu: resetEvent %lu\n", m_resetEvent );
-    m_arena->state = 1;  // QemuDevice::stamp() unblocked here
+    printf("Qemu: initialized\n" );
+    m_arena->simuAction = SIM_EVENT;  // QemuDevice::stamp() unblocked here
+    m_running = true;
 
     //usleep( 1*1000 );   // Let Simulation fully start running
 
-    //printf("Qemu: waiting for time\n");fflush( stdout );
-    //simu_event( NULL );
+    printf("Qemu: waiting for SimulIDE\n");fflush( stdout );
     waitForTime();
 
     printf("Qemu: starting main loop\n");fflush( stdout );
-
     int status = qemu_main_loop();
     qemu_cleanup( status );
-
-    m_arena->state = 0;
 
 #ifdef __linux__
     munmap( arena, shMemSize ); // Un-map shared memory
