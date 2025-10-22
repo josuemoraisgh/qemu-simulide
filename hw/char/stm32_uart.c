@@ -93,10 +93,10 @@ struct Stm32Uart {
 
   bool sr_read_with_ore;
 
-  bool receiving; // Indicates whether the USART is currently receiving a byte.
+  //bool receiving; // Indicates whether the USART is currently receiving a byte.
 
   /* Timers used to simulate a delay corresponding to the baud rate. */
-  struct QEMUTimer *rx_timer;
+  //struct QEMUTimer *rx_timer;
   struct QEMUTimer *tx_timer;
   struct QEMUTimer *tx_dma_timer;
 
@@ -186,15 +186,15 @@ static void stm32_uart_start_tx( Stm32Uart *s ) // Start transmitting a byte.
     timer_mod( s->tx_timer, time_ns + s->ns_per_char ); // Start the transmit delay timer.
 }
 
-static void stm32_uart_rx_timer_expire( void *opaque ) // Receive delay complete, mark the receive as complete
-{
-    Stm32Uart *s = (Stm32Uart*)opaque;
-
-    s->receiving = false;
-
-    uint64_t curr_time = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
-    timer_mod(s->rx_timer, curr_time + s->ns_per_char);
-}
+//static void stm32_uart_rx_timer_expire( void *opaque ) // Receive delay complete, mark the receive as complete
+//{
+//    Stm32Uart *s = (Stm32Uart*)opaque;
+//
+//    //s->receiving = false;
+//
+//    uint64_t curr_time = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+//    timer_mod(s->rx_timer, curr_time + s->ns_per_char);
+//}
 
 static void stm32_uart_tx_timer_expire( void *opaque ) // Transmit delay complete, mark the transmit as complete
 {
@@ -218,50 +218,30 @@ static void stm32_uart_tx_dma_timer_expire( void *opaque ) /* DMA tx delay */
     }
 }
 
-void stm32_uart_receive( Stm32Uart* uart, const uint8_t data );
+void stm32_uart_receive( Stm32Uart* s, const uint8_t data );
 
-void stm32_uart_receive( Stm32Uart* uart, const uint8_t data )
+void stm32_uart_receive( Stm32Uart* s, const uint8_t data )
 {
-    printf("Qemu: stm32_uart_receive %u %u\n", uart->id, data );
-    printf("      at time %lu\n", getQemu_ps() ); fflush( stdout );
+    //printf("Qemu: stm32_uart_receive %u %u\n", s->id, data );
+    //printf("      at time %lu\n", getQemu_ps() ); fflush( stdout );
 
-    //Stm32Uart *s = (Stm32Uart *)opaque;
-    //uint64_t curr_time = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    if( s->CR1_UE && s->CR1_RE ) // Module is enabled
+    {
+        if( s->SR_RXNE ) // Set the overflow flag if buffer not empty
+        {
+            s->SR_ORE = 1<<SR_ORE_BIT;
+            s->sr_read_with_ore = false;
+        }
+        s->RDR_r = data;             // Save data to buffer
+        s->SR_RXNE = 1<<SR_RXNE_BIT; // Mark the buffer as not empty.
+        stm32_uart_update_irq(s);
+    }
 
-    //assert(size > 0);
-
-    ///* Only handle the received character if the module is enabled, */
-    //if( s->CR1_UE && s->CR1_RE )
-    //{
-    //    /* If there is already a character in the receive buffer, then set the overflow flag. */
-    //     if( s->SR_RXNE )
-    //    {
-    //        s->SR_ORE = 1<<SR_ORE_BIT;
-    //        s->sr_read_with_ore = false;
-    //        stm32_uart_update_irq(s);
-    //    }
-
-    //    /* Receive the character and mark the buffer as not empty. */
-    //    s->RDR_r = *buf;
-    //    s->SR_RXNE = 1<<SR_RXNE_BIT;
-    //    stm32_uart_update_irq(s);
-    //}
-
-    //if (s->CR3_r & CR3_r_DMAR_BIT)
-    //{
-    //  qemu_set_irq(*stm32_DMA1_irq, 0x00000010);
-    //  qemu_set_irq(*stm32_DMA1_irq, 0x00000000);
-    //} else {
-
-
-    ///* Indicate the module is receiving and start the delay. */
-    //s->receiving = true;
-
-    ///* Set timer in either case - main event loop must run again to
-    // * trigger next receive */
-    //curr_time = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
-    //timer_mod(s->rx_timer, curr_time + s->ns_per_char);
-    //}
+    if( s->CR3_r & CR3_r_DMAR_BIT )  // DMA operation
+    {
+      qemu_set_irq(*stm32_DMA1_irq, 0x00000010);
+      qemu_set_irq(*stm32_DMA1_irq, 0x00000000);
+    }
 }
 
 /* REGISTER IMPLEMENTATION */
@@ -417,7 +397,7 @@ static void stm32_uart_init(Object *obj)
 
     sysbus_init_irq( dev, &s->irq );
 
-    s->rx_timer     = timer_new_ns( QEMU_CLOCK_VIRTUAL, (QEMUTimerCB *)stm32_uart_rx_timer_expire, s);
+    //s->rx_timer     = timer_new_ns( QEMU_CLOCK_VIRTUAL, (QEMUTimerCB *)stm32_uart_rx_timer_expire, s);
     s->tx_timer     = timer_new_ns( QEMU_CLOCK_VIRTUAL, (QEMUTimerCB *)stm32_uart_tx_timer_expire, s);
     s->tx_dma_timer = timer_new_ns( QEMU_CLOCK_VIRTUAL, (QEMUTimerCB *)stm32_uart_tx_dma_timer_expire, s);
 
