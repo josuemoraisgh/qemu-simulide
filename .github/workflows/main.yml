@@ -91,8 +91,8 @@ jobs:
           echo "Header do qemuArena_t: $ARENA_HDR"
 
           # 2) Candidatos prováveis de nomes modernos
-          ACTION_CANDS="op cmd event state action"   # inclui 'action' se ainda existir
-          TIME_CANDS="ts timestamp time_ns ticks tstamp time"  # inclui 'time' se ainda existir
+          ACTION_CANDS="op cmd event state action"
+          TIME_CANDS="ts timestamp time_ns ticks tstamp time"
 
           # 3) Função para testar uma dupla (A,T) compilando um probe simples
           test_pair () {
@@ -130,7 +130,6 @@ C_EOF
 
           echo "Detectado: action -> ${FOUND_A}    time -> ${FOUND_T}"
           # 4) Exportar CFLAGS para remapear tokens usados pelo esp32_gpio.c
-          #    Isso substitui 'action' e 'time' por seus equivalentes atuais no pré-processador.
           echo "CFLAGS=-Daction=${FOUND_A} -Dtime=${FOUND_T}" >> "$GITHUB_ENV"
 
       # ---- BUILD (configure + make) ----
@@ -164,11 +163,11 @@ C_EOF
           make install DESTDIR="$(pwd)/dist"
 
       # ---- NORMALIZAR LAYOUT + COPIAR DLLs ----
-      - name: Criar bundle “flat” + copiar DLLs de runtime
+      - name: Criar bundle flat + copiar DLLs de runtime
         shell: msys2 {0}
         run: |
           set -euo pipefail
-      
+
           # 1) Onde os EXEs foram instalados
           EXE_PATH="$(find dist -type f -name 'qemu-system-xtensa*.exe' -print -quit || true)"
           if [ -z "$EXE_PATH" ]; then
@@ -178,12 +177,12 @@ C_EOF
           fi
           BIN_DIR="$(dirname "$EXE_PATH")"
           echo "BIN_DIR detectado: $BIN_DIR"
-      
+
           # 2) Pasta final "flat"
           rm -rf bundle
           mkdir -p bundle
           cp -v "$BIN_DIR"/qemu*.exe bundle/ || true
-      
+
           # 3) share/qemu (ROMs/firmware/gui files)
           if [ -d "$MINGW_PREFIX/share/qemu" ]; then
             mkdir -p bundle/share
@@ -194,7 +193,7 @@ C_EOF
             rsync -a --ignore-existing "$(dirname "$BIN_DIR")/share/qemu" "bundle/share/" \
               || cp -r "$(dirname "$BIN_DIR")/share/qemu" "bundle/share/" || true
           fi
-      
+
           # 4) Resolver dependências com ntldd (SEM filtrar por pasta)
           mapfile -t DEPS < <(
             find bundle -maxdepth 1 -type f -name '*.exe' -print0 |
@@ -209,7 +208,7 @@ C_EOF
               cp -n "$d" bundle/
             fi
           done
-      
+
           # 5) Fallback: DLLs comuns
           for dll in \
             libbz2-1.dll zlib1.dll libzstd.dll \
@@ -225,7 +224,7 @@ C_EOF
           ; do
             [ -f "/mingw64/bin/$dll" ] && cp -n "/mingw64/bin/$dll" bundle/ || true
           done
-      
+
           echo "Conteúdo final da pasta bundle/:"
           ls -al bundle
 
@@ -244,7 +243,7 @@ C_EOF
           if-no-files-found: error
 
       # ---- CREATE TAG + RELEASE ----
-      - name: Criar Release com tag ${{ inputs.version }}
+      - name: Criar Release com tag
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.version }}
