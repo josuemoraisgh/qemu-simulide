@@ -75,7 +75,7 @@ jobs:
           which ninja && ninja --version
           which ntldd && ntldd --version
 
-      # 1) Tentar detectar campos reais e remapear via CFLAGS
+      # 1) Detecção automática dos campos do qemuArena_t e remapeamento via CFLAGS
       - name: Detectar campos do qemuArena_t e setar CFLAGS
         id: detect_arena
         shell: msys2 {0}
@@ -85,7 +85,7 @@ jobs:
 
           ARENA_HDR="$(grep -RIl --include='*.h' 'typedef struct qemuArena' || true)"
           if [ -z "${ARENA_HDR}" ]; then
-            echo "Header do qemuArena_t não encontrado; tentando por nome do typedef..."
+            echo "Header do qemuArena_t não encontrado por 'typedef'; tentando por typedef name..."
             ARENA_HDR="$(grep -RIl --include='*.h' 'qemuArena_t' || true)"
           fi
           if [ -z "${ARENA_HDR}" ]; then
@@ -94,7 +94,7 @@ jobs:
           fi
           echo "Header do qemuArena_t: ${ARENA_HDR}"
 
-          # Extrair possíveis campos (parse simples)
+          # Extrair possíveis nomes de campos (parse simples do bloco do struct)
           awk '
             /typedef[[:space:]]+struct[[:space:]]+qemuArena/ {inblk=1; next}
             inblk && /};/ {inblk=0}
@@ -146,37 +146,44 @@ jobs:
           else
             echo "Não foi possível mapear automaticamente."
             exit 3
-
           fi
 
-      # 2) Fallback: se detecção falhar, aplicar patch neutro no arquivo-fonte (só no CI)
-      - name: Fallback - neutralizar arena em esp32_gpio.c via sed
+      # 2) Fallback: se a detecção falhar, neutralizar todos os usos de m_arena->action/time em *.c
+      - name: Fallback - neutralizar arena em todos os fontes que usam m_arena->action/time
         if: steps.detect_arena.outcome == 'failure'
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          FILE="hw/gpio/esp32_gpio.c"
-          if [ ! -f "${FILE}" ]; then
-            echo "Arquivo ${FILE} não encontrado; listando árvore:"
-            find . -maxdepth 3 -type f -name 'esp32_gpio.c'
-            exit 1
+
+          mapfile -t ARENA_FILES < <(grep -REIl --include='*.c' 'm_arena->(action|time)' hw || true)
+
+          if [ "${#ARENA_FILES[@]}" -eq 0 ]; then
+            echo "Nenhum arquivo com m_arena->action/time encontrado em hw/. Nada a fazer."
+            exit 0
           fi
 
-          echo "Aplicando shim neutro em ${FILE}..."
-          # while ( m_arena->action )  -> while(0)
-          sed -i -E 's/while[[:space:]]*\([[:space:]]*m_arena->action[[:space:]]*\)/while(0) \/* shim: no wait *\//' "${FILE}"
+          echo "Arquivos a patchar:"
+          printf ' - %s\n' "${ARENA_FILES[@]}"
 
-          # m_arena->action = ...;  -> drop linha
-          sed -i -E 's/m_arena->action[[:space:]]*=[^;]*;/\/\* shim: drop arena action *\//g' "${FILE}"
+          for FILE in "${ARENA_FILES[@]}"; do
+            echo "Patchando ${FILE}..."
+            # while ( m_arena->action ) -> while(0)
+            sed -i -E 's/while[[:space:]]*\([[:space:]]*m_arena->action[[:space:]]*\)/while(0) \/* shim: no wait *\//' "${FILE}"
+            # m_arena->action = ...; -> drop
+            sed -i -E 's/m_arena->action[[:space:]]*=[^;]*;/\/\* shim: drop arena action *\//g' "${FILE}"
+            # m_arena->time = qemuTime; -> (void)qemuTime;
+            sed -i -E 's/m_arena->time[[:space:]]*=[[:space:]]*qemuTime[[:space:]]*;/\(void\)qemuTime; \/* shim *\//g' "${FILE}"
+            # m_arena->time = ...; -> drop
+            sed -i -E 's/m_arena->time[[:space:]]]*=[^;]*;/\/\* shim: drop arena time *\//g' "${FILE}"
+          done
 
-          # m_arena->time = ...;    -> drop linha (preserva side-effects com (void)expr quando for qemuTime)
-          sed -i -E 's/m_arena->time[[:space:]]*=[[:space:]]*qemuTime[[:space:]]*;/\(void\)qemuTime; \/* shim *\//g' "${FILE}"
-          sed -i -E 's/m_arena->time[[:space:]]*=[^;]*;/\/\* shim: drop arena time *\//g' "${FILE}"
+          echo "Resumo dos pontos patchados (linhas com 'shim'):"
+          for FILE in "${ARENA_FILES[@]}"; do
+            echo "---- ${FILE} ----"
+            grep -n 'shim' "${FILE}" || true
+          done
 
-          echo "Diff (contexto) após patch:"
-          grep -n 'shim' -n "${FILE}" || true
-
-      # BUILD
+      # 3) BUILD (configure + make)
       - name: Configure (legacy ./configure)
         shell: msys2 {0}
         env:
@@ -206,6 +213,7 @@ jobs:
           mkdir -p dist
           make install DESTDIR="$(pwd)/dist"
 
+      # 4) Bundle flat + DLLs de runtime
       - name: Criar bundle flat + copiar DLLs de runtime
         shell: msys2 {0}
         run: |
@@ -266,6 +274,7 @@ jobs:
           echo "Conteúdo final da pasta bundle/:"
           ls -al bundle
 
+      # 5) ZIP + Release
       - name: Gerar ZIP
         shell: pwsh
         run: |
@@ -291,6 +300,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # 6) Logs em caso de falha
       - name: Show logs on failure (config.log / meson-log)
         if: ${{ failure() }}
         shell: bash
