@@ -75,9 +75,69 @@ jobs:
           which ninja && ninja --version
           which ntldd && ntldd --version
 
+      # === NOVO: detecção automática dos campos do qemuArena_t e remapeamento via CFLAGS ===
+      - name: Detectar campos do qemuArena_t e setar CFLAGS (action/time -> nomes atuais)
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+
+          # 1) Encontrar o header que define qemuArena_t
+          ARENA_HDR="$(grep -RIl --include='*.h' 'typedef struct qemuArena' || true)"
+          if [ -z "$ARENA_HDR" ]; then
+            echo "Não achei o header do qemuArena_t. Mostrando candidatos por 'qemuArena_t':"
+            grep -RIn --include='*.h' 'qemuArena_t' || true
+            exit 1
+          fi
+          echo "Header do qemuArena_t: $ARENA_HDR"
+
+          # 2) Candidatos prováveis de nomes modernos
+          ACTION_CANDS="op cmd event state action"   # inclui 'action' se ainda existir
+          TIME_CANDS="ts timestamp time_ns ticks tstamp time"  # inclui 'time' se ainda existir
+
+          # 3) Função para testar uma dupla (A,T) compilando um probe simples
+          test_pair () {
+            A="$1"; T="$2"
+            cat > /tmp/_probe.c <<C_EOF
+            #include <stdint.h>
+            #include "${ARENA_HDR}"
+            int main(void){
+              volatile qemuArena_t *p = (volatile qemuArena_t*)0;
+              (void)p->${A};
+              (void)p->${T};
+              return 0;
+            }
+C_EOF
+            gcc -m64 -c /tmp/_probe.c -o /tmp/_probe.o >/dev/null 2>&1
+          }
+
+          FOUND_A=""
+          FOUND_T=""
+          for A in $ACTION_CANDS; do
+            for T in $TIME_CANDS; do
+              if test_pair "$A" "$T"; then
+                FOUND_A="$A"
+                FOUND_T="$T"
+                break 2
+              fi
+            done
+          done
+
+          if [ -z "$FOUND_A" ] || [ -z "$FOUND_T" ]; then
+            echo "Falhou a detecção automática dos campos do qemuArena_t."
+            echo "Ajuste ACTION_CANDS/TIME_CANDS acima, ou me envie o header para patch exato."
+            exit 1
+          fi
+
+          echo "Detectado: action -> ${FOUND_A}    time -> ${FOUND_T}"
+          # 4) Exportar CFLAGS para remapear tokens usados pelo esp32_gpio.c
+          #    Isso substitui 'action' e 'time' por seus equivalentes atuais no pré-processador.
+          echo "CFLAGS=-Daction=${FOUND_A} -Dtime=${FOUND_T}" >> "$GITHUB_ENV"
+
       # ---- BUILD (configure + make) ----
       - name: Configure (legacy ./configure)
         shell: msys2 {0}
+        env:
+          CFLAGS: ${{ env.CFLAGS }}
         run: |
           ./configure \
             --prefix=$MINGW_PREFIX \
@@ -91,6 +151,8 @@ jobs:
 
       - name: Build (make)
         shell: msys2 {0}
+        env:
+          CFLAGS: ${{ env.CFLAGS }}
         run: |
           make -j"$(nproc)"
 
@@ -138,7 +200,7 @@ jobs:
             find bundle -maxdepth 1 -type f -name '*.exe' -print0 |
             xargs -0 -I{} ntldd -R "{}" |
             sed -n 's/.*=> \([^ ]*\.dll\).*/\1/p' |
-            sed 's#\\#/#g' |           # normaliza C:\ -> C:/
+            sed 's#\\#/#g' |
             awk 'NF && $0 ~ /\.dll$/ {print}' |
             sort -u
           )
@@ -148,7 +210,7 @@ jobs:
             fi
           done
       
-          # 5) Fallback: DLLs comuns que alguns sistemas não resolvem via ntldd
+          # 5) Fallback: DLLs comuns
           for dll in \
             libbz2-1.dll zlib1.dll libzstd.dll \
             libncursesw6.dll libreadline8.dll \
@@ -166,7 +228,6 @@ jobs:
       
           echo "Conteúdo final da pasta bundle/:"
           ls -al bundle
-
 
       # ---- PACKAGE ----
       - name: Gerar ZIP
