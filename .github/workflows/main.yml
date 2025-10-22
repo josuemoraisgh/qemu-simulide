@@ -80,7 +80,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Encontrar o header que define qemuArena_t
+          # 1) Encontrar o header que define qemuArena_t
           ARENA_HDR="$(grep -RIl --include='*.h' 'typedef struct qemuArena' || true)"
           if [ -z "${ARENA_HDR}" ]; then
             echo "Não achei o header do qemuArena_t. Candidatos por 'qemuArena_t':"
@@ -89,9 +89,11 @@ jobs:
           fi
           echo "Header do qemuArena_t: ${ARENA_HDR}"
 
+          # 2) Candidatos prováveis
           ACTION_CANDS="op cmd event state action"
           TIME_CANDS="ts timestamp time_ns ticks tstamp time"
 
+          # 3) Testar dupla (A,T) compilando um probe (sem heredoc)
           test_pair () {
             A="$1"; T="$2"
             rm -f /tmp/_probe.c /tmp/_probe.o
@@ -121,6 +123,7 @@ jobs:
 
           echo "Detectado: action -> ${FOUND_A}    time -> ${FOUND_T}"
           echo "CFLAGS=-Daction=${FOUND_A} -Dtime=${FOUND_T}" >> "$GITHUB_ENV"
+
 
       - name: Configure (legacy ./configure)
         shell: msys2 {0}
