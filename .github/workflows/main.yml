@@ -75,17 +75,15 @@ jobs:
           which ninja && ninja --version
           which ntldd && ntldd --version
 
-      # 1) Detecção automática dos campos do qemuArena_t e remapeamento via CFLAGS
+      # 1) Detecta campos de qemuArena_t e exporta CFLAGS (-Daction=.. -Dtime=..)
       - name: Detectar campos do qemuArena_t e setar CFLAGS
         id: detect_arena
         shell: msys2 {0}
         continue-on-error: true
         run: |
           set -euo pipefail
-
           ARENA_HDR="$(grep -RIl --include='*.h' 'typedef struct qemuArena' || true)"
           if [ -z "${ARENA_HDR}" ]; then
-            echo "Header do qemuArena_t não encontrado por 'typedef'; tentando por typedef name..."
             ARENA_HDR="$(grep -RIl --include='*.h' 'qemuArena_t' || true)"
           fi
           if [ -z "${ARENA_HDR}" ]; then
@@ -93,8 +91,6 @@ jobs:
             exit 2
           fi
           echo "Header do qemuArena_t: ${ARENA_HDR}"
-
-          # Extrair possíveis nomes de campos (parse simples do bloco do struct)
           awk '
             /typedef[[:space:]]+struct[[:space:]]+qemuArena/ {inblk=1; next}
             inblk && /};/ {inblk=0}
@@ -110,14 +106,11 @@ jobs:
               }
             }
           ' "${ARENA_HDR}" | sort -u > /tmp/_arena_fields.txt || true
-
           if [ ! -s /tmp/_arena_fields.txt ]; then
             printf '%s\n' op cmd event state action ts timestamp time_ns ticks tstamp time > /tmp/_arena_fields.txt
           fi
-
           mapfile -t FIELDS < /tmp/_arena_fields.txt
           echo "Campos candidatos: ${FIELDS[*]}"
-
           test_pair () {
             A="$1"; T="$2"
             rm -f /tmp/_probe.c /tmp/_probe.o
@@ -126,20 +119,15 @@ jobs:
             printf 'int main(void){ volatile qemuArena_t *p=(volatile qemuArena_t*)0; (void)p->%s; (void)p->%s; return 0; }\n' "${A}" "${T}" >> /tmp/_probe.c
             gcc -m64 -c /tmp/_probe.c -o /tmp/_probe.o >/dev/null 2>&1
           }
-
-          FOUND_A=""
-          FOUND_T=""
+          FOUND_A=""; FOUND_T=""
           for A in "${FIELDS[@]}"; do
             for T in "${FIELDS[@]}"; do
               [ "${A}" = "${T}" ] && continue
               if test_pair "${A}" "${T}"; then
-                FOUND_A="${A}"
-                FOUND_T="${T}"
-                break 2
+                FOUND_A="${A}"; FOUND_T="${T}"; break 2
               fi
             done
           done
-
           if [ -n "${FOUND_A}" ] && [ -n "${FOUND_T}" ]; then
             echo "Mapeado: action -> ${FOUND_A} | time -> ${FOUND_T}"
             echo "CFLAGS=-Daction=${FOUND_A} -Dtime=${FOUND_T}" >> "$GITHUB_ENV"
@@ -148,42 +136,51 @@ jobs:
             exit 3
           fi
 
-      # 2) Fallback: se a detecção falhar, neutralizar todos os usos de m_arena->action/time em *.c
-      - name: Fallback - neutralizar arena em todos os fontes que usam m_arena->action/time
+      # 2) Fallback: neutraliza todos os usos de m_arena->action/time em *.c se a detecção falhar
+      - name: Fallback - neutralizar arena em todos os fontes
         if: steps.detect_arena.outcome == 'failure'
         shell: msys2 {0}
         run: |
           set -euo pipefail
-
-          mapfile -t ARENA_FILES < <(grep -REIl --include='*.c' 'm_arena->(action|time)' hw || true)
-
+          mapfile -t ARENA_FILES < <(grep -REIl --include='*.c' 'm_arena->(action|time)' hw system || true)
           if [ "${#ARENA_FILES[@]}" -eq 0 ]; then
-            echo "Nenhum arquivo com m_arena->action/time encontrado em hw/. Nada a fazer."
+            echo "Nenhum arquivo com m_arena->action/time encontrado. Nada a fazer."
             exit 0
           fi
-
-          echo "Arquivos a patchar:"
-          printf ' - %s\n' "${ARENA_FILES[@]}"
-
+          printf 'Patchando:\n - %s\n' "${ARENA_FILES[@]}"
           for FILE in "${ARENA_FILES[@]}"; do
-            echo "Patchando ${FILE}..."
-            # while ( m_arena->action ) -> while(0)
             sed -i -E 's/while[[:space:]]*\([[:space:]]*m_arena->action[[:space:]]*\)/while(0) \/* shim: no wait *\//' "${FILE}"
-            # m_arena->action = ...; -> drop
             sed -i -E 's/m_arena->action[[:space:]]*=[^;]*;/\/\* shim: drop arena action *\//g' "${FILE}"
-            # m_arena->time = qemuTime; -> (void)qemuTime;
             sed -i -E 's/m_arena->time[[:space:]]*=[[:space:]]*qemuTime[[:space:]]*;/\(void\)qemuTime; \/* shim *\//g' "${FILE}"
-            # m_arena->time = ...; -> drop
-            sed -i -E 's/m_arena->time[[:space:]]]*=[^;]*;/\/\* shim: drop arena time *\//g' "${FILE}"
+            sed -i -E 's/m_arena->time[[:space:]]*=[^;]*;/\/\* shim: drop arena time *\//g' "${FILE}"
           done
 
-          echo "Resumo dos pontos patchados (linhas com 'shim'):"
-          for FILE in "${ARENA_FILES[@]}"; do
-            echo "---- ${FILE} ----"
-            grep -n 'shim' "${FILE}" || true
-          done
+      # 3) Shim STM32 UART: adiciona stub fraco se o símbolo aparecer em system/simuliface.c
+      - name: Shim STM32 UART (weak stub em system/simuliface.c)
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          FILE="system/simuliface.c"
+          if [ -f "${FILE}" ] && grep -q 'stm32_f103c8_uart_action' "${FILE}"; then
+            if ! grep -q 'WEAK_STM32_UART_SHIM' "${FILE}"; then
+              echo "Inserindo weak stub de stm32_f103c8_uart_action em ${FILE}"
+              # Insere o shim no topo do arquivo de forma idempotente
+              tmp="${FILE}.tmp"
+              {
+                printf "#ifndef WEAK_STM32_UART_SHIM\n#define WEAK_STM32_UART_SHIM 1\n"
+                printf "__attribute__((weak)) void stm32_f103c8_uart_action(void){}\n"
+                printf "#endif\n"
+                cat "${FILE}"
+              } > "${tmp}"
+              mv "${tmp}" "${FILE}"
+            else
+              echo "Shim já presente; seguindo."
+            fi
+          else
+            echo "system/simuliface.c não referencia stm32_f103c8_uart_action; nada a fazer."
+          fi
 
-      # 3) BUILD (configure + make)
+      # 4) BUILD (configure + make)
       - name: Configure (legacy ./configure)
         shell: msys2 {0}
         env:
@@ -213,12 +210,11 @@ jobs:
           mkdir -p dist
           make install DESTDIR="$(pwd)/dist"
 
-      # 4) Bundle flat + DLLs de runtime
+      # 5) Bundle flat + DLLs
       - name: Criar bundle flat + copiar DLLs de runtime
         shell: msys2 {0}
         run: |
           set -euo pipefail
-
           EXE_PATH="$(find dist -type f -name 'qemu-system-xtensa*.exe' -print -quit || true)"
           if [ -z "${EXE_PATH}" ]; then
             echo "qemu-system-xtensa*.exe não encontrado em dist/"
@@ -227,11 +223,9 @@ jobs:
           fi
           BIN_DIR="$(dirname "${EXE_PATH}")"
           echo "BIN_DIR detectado: ${BIN_DIR}"
-
           rm -rf bundle
           mkdir -p bundle
           cp -v "${BIN_DIR}"/qemu*.exe bundle/ || true
-
           if [ -d "$MINGW_PREFIX/share/qemu" ]; then
             mkdir -p bundle/share
             cp -r "$MINGW_PREFIX/share/qemu" "bundle/share/"
@@ -241,7 +235,6 @@ jobs:
             rsync -a --ignore-existing "$(dirname "${BIN_DIR}")/share/qemu" "bundle/share/" \
               || cp -r "$(dirname "${BIN_DIR}")/share/qemu" "bundle/share/" || true
           fi
-
           mapfile -t DEPS < <(
             find bundle -maxdepth 1 -type f -name '*.exe' -print0 |
             xargs -0 -I{} ntldd -R "{}" |
@@ -255,7 +248,6 @@ jobs:
               cp -n "$d" bundle/
             fi
           done
-
           for dll in \
             libbz2-1.dll zlib1.dll libzstd.dll \
             libncursesw6.dll libreadline8.dll \
@@ -270,11 +262,10 @@ jobs:
           ; do
             [ -f "/mingw64/bin/$dll" ] && cp -n "/mingw64/bin/$dll" bundle/ || true
           done
-
           echo "Conteúdo final da pasta bundle/:"
           ls -al bundle
 
-      # 5) ZIP + Release
+      # 6) ZIP + Release
       - name: Gerar ZIP
         shell: pwsh
         run: |
@@ -300,7 +291,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 6) Logs em caso de falha
+      # 7) Logs em caso de falha
       - name: Show logs on failure (config.log / meson-log)
         if: ${{ failure() }}
         shell: bash
