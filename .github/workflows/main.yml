@@ -124,7 +124,6 @@ jobs:
           echo "Detectado: action -> ${FOUND_A}    time -> ${FOUND_T}"
           echo "CFLAGS=-Daction=${FOUND_A} -Dtime=${FOUND_T}" >> "$GITHUB_ENV"
 
-
       - name: Configure (legacy ./configure)
         shell: msys2 {0}
         env:
