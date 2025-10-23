@@ -26,6 +26,7 @@ typedef struct qemuArena{
     uint8_t  simuAction;
     uint8_t  qemuAction;
     double   ps_per_inst;
+    bool     running;
 } qemuArena_t;
 
 enum esp32Actions{
@@ -73,8 +74,9 @@ extern uint64_t m_timeout;
 
 uint64_t getQemu_ps(void);
 
-bool waitEvent(void);
-void waitForTime(void);
+//bool waitEvent(void);
+void doAction(void);
+void stm32_f103c8_uart_action(void);
 
 int simuMain( int argc, char** argv );
 

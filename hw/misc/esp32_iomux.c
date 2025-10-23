@@ -89,7 +89,7 @@ static void esp32_iomux_write( void *opaque, hwaddr addr, uint64_t value, unsign
     s->muxgpios[pin]= value;
 
     uint64_t qemuTime = getQemu_ps();
-    if( !waitEvent() ) return;
+    if( !m_arena->running ) return;
 //printf("iomuxChanged %i %lu\n", pin, qemuTime ); fflush( stdout );
     m_arena->action = ESP_IOMUX;
     m_arena->data32 = value;

@@ -299,7 +299,7 @@ printf("STM32 GPIO Write %lu %lu\n", addr, val64 ); fflush( stdout );
         /// test code ------------------------------
         uint32_t state = s->odr;
         uint64_t qemuTime = getQemu_ps();
-        if( !waitEvent() ) return;
+        if( !m_arena->running ) return;
 
         printf("STM32 gpio ODR Changed %i %lu\n", state, qemuTime ); fflush( stdout );
 

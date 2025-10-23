@@ -61,7 +61,7 @@ static void inputChanged( Esp32GpioState *gpioS, int pin, int val )
 static void readInput( Esp32GpioState *gpioS, int n )
 {
     uint64_t qemuTime = getQemu_ps();
-    if( !waitEvent() ) return;
+    if( !m_arena->running ) return;
 
     uint32_t* gpioIn  = &gpioS->gpio_in[n];
 
@@ -154,7 +154,7 @@ static void clearStatus( Esp32GpioState* gpioS, int n, uint64_t value ) // GPIO_
 static void outChanged( uint32_t state )
 {
     uint64_t qemuTime = getQemu_ps();
-    if( !waitEvent() ) return;
+    if( !m_arena->running ) return;
 
     //printf("gpioChanged %i %i %lu %lu\n", pin, state, newState, qemuTime ); fflush( stdout );
 
@@ -166,7 +166,7 @@ static void outChanged( uint32_t state )
 static void dirChanged( uint32_t dir )
 {
     uint64_t qemuTime = getQemu_ps();
-    if( !waitEvent() ) return;
+    if( !m_arena->running ) return;
 //printf("dirChanged %i %lu\n", dir, qemuTime ); fflush( stdout );
     m_arena->action = ESP_GPIO_DIR;
     m_arena->data32 = dir;
@@ -183,7 +183,7 @@ static void matrixChanged( int out, int func, int value )
     //fflush( stdout );
 
     uint64_t qemuTime = getQemu_ps();
-    if( !waitEvent() ) return;
+    if( !m_arena->running ) return;
 
     m_arena->action = out ? ESP_MATRIX_OUT : ESP_MATRIX_IN;
     m_arena->data32 = value;

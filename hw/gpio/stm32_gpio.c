@@ -78,49 +78,38 @@ static void stm32_gpio_in_trigger( void *opaque, int irq, int level )
 
 static uint16_t readInputs( int32_t port )
 {
-    uint64_t qemuTime = getQemu_ps();
-    if( !waitEvent() ) return 0;
+    if( !m_arena->running ) return 0;
 
-    m_arena->data8  = port;
-    m_arena->simuTime = qemuTime;
     m_arena->simuAction = ARM_GPIO_IN;
+    m_arena->data8  = port;
+    doAction();
 
-    while( m_arena->simuAction ) // Wait for read completed
-    {
-        m_timeout += 1;
-        if( m_timeout > 5e9 ) return 0; // Exit if timed out
-    }
-    m_timeout = 0;
     return m_arena->data16;
 }
 
 static void stm32_gpio_write_CRx( uint32_t value, uint8_t shift, uint8_t port )
 {
-    uint64_t qemuTime = getQemu_ps();
-    if( !waitEvent() ) return;        // Wait until SimulIDE is free
+    if( !m_arena->running ) return;        // Wait until SimulIDE is free
 
     m_arena->simuAction = ARM_GPIO_CRx;
     m_arena->data32 = value;
     m_arena->mask8  = shift;
     m_arena->data8  = port;     // We have to send Port number, PortA = 1
-    m_arena->simuTime = qemuTime;
 
-    waitForTime();
+    doAction();
 }
 
 static void stm32_gpio_write_ODR( uint32_t new_value, uint8_t port )
 {
     //printf("STM32 GPIO ODR Write %i %i\n", portNumber, new_value ); fflush( stdout );
 
-    uint64_t qemuTime = getQemu_ps();
-    if( !waitEvent() ) return;        // Wait until SimulIDE execute previous action
+    if( !m_arena->running ) return;        // Wait until SimulIDE execute previous action
 
     m_arena->simuAction = ARM_GPIO_OUT;
     m_arena->data16 = new_value;   // 1 bit per pin: 1 = High
     m_arena->data8  = port;  // We have to send Port number, PortA = 1
-    m_arena->simuTime = qemuTime;
 
-    waitForTime();
+    doAction();
 }
 
 static uint64_t stm32_gpio_read( void *opaque, hwaddr offset, unsigned size )

@@ -71,7 +71,7 @@ Stm32_F103c8_Mcu* s;
 
 uint32_t stm32_uart_baud_rate(void *opaque);
 void stm32_uart_receive( Stm32Uart* uart, const uint8_t data );
-void stm32_f103c8_uart_action(void);
+//void stm32_f103c8_uart_action(void);
 
 void stm32_f103c8_uart_action(void)
 {
