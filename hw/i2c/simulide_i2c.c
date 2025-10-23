@@ -36,7 +36,7 @@ static uint8_t i2c_iface_rx( I2CSlave *i2c )
 {
     //I2cIface *s = I2C_IFACE(i2c);
     uint64_t qemuTime = getQemu_ps();
-    if( !waitEvent() ) return 0;
+    if( !m_arena->running ) return 0;
     //printf("i2c_rx %lu\n", qemuTime/1000000 );fflush( stdout );
 
     m_arena->simuTime = qemuTime;
@@ -49,7 +49,7 @@ static int i2c_iface_tx( I2CSlave *i2c, uint8_t data )
 
     uint64_t qemuTime = getQemu_ps();
     //printf("i2c_tx %i %lu\n", data, qemuTime/1000000 );fflush( stdout );
-    if( !waitEvent() ) return 0;
+    if( !m_arena->running ) return 0;
 
     m_arena->simuAction = SIM_I2C;
     m_arena->data8  = SIM_I2C_WRITE;
@@ -66,7 +66,7 @@ static int i2c_iface_ev( I2CSlave *i2c, enum i2c_event event )
 
     uint64_t qemuTime = getQemu_ps();
     //printf("i2c_ev %i %lu\n", event, qemuTime/1000000 );fflush( stdout );
-    if( !waitEvent() ) return 0;
+    if( !m_arena->running ) return 0;
 
     m_arena->simuAction = SIM_I2C;
     m_arena->data8  = event;
@@ -83,7 +83,7 @@ static bool i2c_iface_match( I2CSlave *candidate, uint8_t address, bool b, I2CNo
     //printf("i2c_match %i\n", address );fflush( stdout );
 
     uint64_t qemuTime = getQemu_ps();
-    if( !waitEvent() ) return false;
+    if( !m_arena->running ) return false;
 
     m_arena->simuAction = SIM_I2C;
     m_arena->data8  = SIM_I2C_MATCH;
