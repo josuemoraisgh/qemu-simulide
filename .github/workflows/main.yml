@@ -52,19 +52,12 @@ jobs:
             mingw-w64-x86_64-pkgconf
             mingw-w64-x86_64-glib2
             mingw-w64-x86_64-pixman
-            mingw-w64-x86_64-SDL2
-            mingw-w64-x86_64-libslirp
-            mingw-w64-x86_64-gnutls
-            mingw-w64-x86_64-libssh
+            mingw-w64-x86_64-libgcrypt
             mingw-w64-x86_64-zlib
-            mingw-w64-x86_64-libpng
-            mingw-w64-x86_64-libjpeg-turbo
-            mingw-w64-x86_64-capstone
             mingw-w64-x86_64-ninja
             mingw-w64-x86_64-meson
             mingw-w64-x86_64-ntldd
             mingw-w64-x86_64-bzip2
-            mingw-w64-x86_64-ncurses
 
       - name: Versões das ferramentas
         shell: msys2 {0}
@@ -74,198 +67,112 @@ jobs:
           which meson && meson --version
           which ninja && ninja --version
           which ntldd && ntldd --version
+          pkg-config --version || true
 
-      # 1) Detecta campos de qemuArena_t e exporta CFLAGS (-Daction=.. -Dtime=..)
-      - name: Detectar campos do qemuArena_t e setar CFLAGS
-        id: detect_arena
+      # Higienização do ambiente para não herdar flags estranhas
+      - name: Limpar variáveis que alteram o configure
         shell: msys2 {0}
-        continue-on-error: true
         run: |
-          set -euo pipefail
-          ARENA_HDR="$(grep -RIl --include='*.h' 'typedef struct qemuArena' || true)"
-          if [ -z "${ARENA_HDR}" ]; then
-            ARENA_HDR="$(grep -RIl --include='*.h' 'qemuArena_t' || true)"
-          fi
-          if [ -z "${ARENA_HDR}" ]; then
-            echo "Falha: não achei header com qemuArena_t."
-            exit 2
-          fi
-          echo "Header do qemuArena_t: ${ARENA_HDR}"
-          awk '
-            /typedef[[:space:]]+struct[[:space:]]+qemuArena/ {inblk=1; next}
-            inblk && /};/ {inblk=0}
-            inblk {
-              line=$0
-              sub(/\/\/.*/,"",line)
-              gsub(/\/\*([^*]|\*+[^*\/])*\*\//,"",line)
-              if (line ~ /^[[:space:]]*$/) next
-              if (line ~ /^[[:space:]]*{/ ) next
-              if (line ~ /;/) {
-                sub(/.*[[:space:]\*]([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*;.*/,"\\1",line)
-                if (line ~ /^[A-Za-z_][A-Za-z0-9_]*$/) print line
-              }
-            }
-          ' "${ARENA_HDR}" | sort -u > /tmp/_arena_fields.txt || true
-          if [ ! -s /tmp/_arena_fields.txt ]; then
-            printf '%s\n' op cmd event state action ts timestamp time_ns ticks tstamp time > /tmp/_arena_fields.txt
-          fi
-          mapfile -t FIELDS < /tmp/_arena_fields.txt
-          echo "Campos candidatos: ${FIELDS[*]}"
-          test_pair () {
-            A="$1"; T="$2"
-            rm -f /tmp/_probe.c /tmp/_probe.o
-            printf '#include <stdint.h>\n' > /tmp/_probe.c
-            printf '#include "%s"\n' "${ARENA_HDR}" >> /tmp/_probe.c
-            printf 'int main(void){ volatile qemuArena_t *p=(volatile qemuArena_t*)0; (void)p->%s; (void)p->%s; return 0; }\n' "${A}" "${T}" >> /tmp/_probe.c
-            gcc -m64 -c /tmp/_probe.c -o /tmp/_probe.o >/dev/null 2>&1
-          }
-          FOUND_A=""; FOUND_T=""
-          for A in "${FIELDS[@]}"; do
-            for T in "${FIELDS[@]}"; do
-              [ "${A}" = "${T}" ] && continue
-              if test_pair "${A}" "${T}"; then
-                FOUND_A="${A}"; FOUND_T="${T}"; break 2
-              fi
-            done
+          set -euxo pipefail
+          for v in QEMU_CONFIGURE_OPTS QEMU_CONFIGURE_FLAGS CONFIGURE_OPTS CONFIGURE_FLAGS; do
+            unset "$v" || true
           done
-          if [ -n "${FOUND_A}" ] && [ -n "${FOUND_T}" ]; then
-            echo "Mapeado: action -> ${FOUND_A} | time -> ${FOUND_T}"
-            echo "CFLAGS=-Daction=${FOUND_A} -Dtime=${FOUND_T}" >> "$GITHUB_ENV"
-          else
-            echo "Não foi possível mapear automaticamente."
-            exit 3
-          fi
+          rm -rf build config.log meson-private meson-info || true
 
-      # 2) Fallback: neutraliza todos os usos de m_arena->action/time em *.c se a detecção falhar
-      - name: Fallback - neutralizar arena em todos os fontes
-        if: steps.detect_arena.outcome == 'failure'
-        shell: msys2 {0}
-        run: |
-          set -euo pipefail
-          mapfile -t ARENA_FILES < <(grep -REIl --include='*.c' 'm_arena->(action|time)' hw system || true)
-          if [ "${#ARENA_FILES[@]}" -eq 0 ]; then
-            echo "Nenhum arquivo com m_arena->action/time encontrado. Nada a fazer."
-            exit 0
-          fi
-          printf 'Patchando:\n - %s\n' "${ARENA_FILES[@]}"
-          for FILE in "${ARENA_FILES[@]}"; do
-            sed -i -E 's/while[[:space:]]*\([[:space:]]*m_arena->action[[:space:]]*\)/while(0) \/* shim: no wait *\//' "${FILE}"
-            sed -i -E 's/m_arena->action[[:space:]]*=[^;]*;/\/\* shim: drop arena action *\//g' "${FILE}"
-            sed -i -E 's/m_arena->time[[:space:]]*=[[:space:]]*qemuTime[[:space:]]*;/\(void\)qemuTime; \/* shim *\//g' "${FILE}"
-            sed -i -E 's/m_arena->time[[:space:]]*=[^;]*;/\/\* shim: drop arena time *\//g' "${FILE}"
-          done
-
-      # 3) Shim STM32 UART: adiciona stub fraco se o símbolo aparecer em system/simuliface.c
-      - name: Shim STM32 UART (weak stub em system/simuliface.c)
-        shell: msys2 {0}
-        run: |
-          set -euo pipefail
-          FILE="system/simuliface.c"
-          if [ -f "${FILE}" ] && grep -q 'stm32_f103c8_uart_action' "${FILE}"; then
-            if ! grep -q 'WEAK_STM32_UART_SHIM' "${FILE}"; then
-              echo "Inserindo weak stub de stm32_f103c8_uart_action em ${FILE}"
-              # Insere o shim no topo do arquivo de forma idempotente
-              tmp="${FILE}.tmp"
-              {
-                printf "#ifndef WEAK_STM32_UART_SHIM\n#define WEAK_STM32_UART_SHIM 1\n"
-                printf "__attribute__((weak)) void stm32_f103c8_uart_action(void){}\n"
-                printf "#endif\n"
-                cat "${FILE}"
-              } > "${tmp}"
-              mv "${tmp}" "${FILE}"
-            else
-              echo "Shim já presente; seguindo."
-            fi
-          else
-            echo "system/simuliface.c não referencia stm32_f103c8_uart_action; nada a fazer."
-          fi
-
-      # 4) BUILD (configure + make)
-      - name: Configure (legacy ./configure)
+      # Configure exatamente como no README
+      - name: Configure (conforme README)
         shell: msys2 {0}
         env:
-          CFLAGS: ${{ env.CFLAGS }}
+          PKG_CONFIG_PATH: /mingw64/lib/pkgconfig:/usr/lib/pkgconfig
         run: |
-          ./configure \
-            --prefix=$MINGW_PREFIX \
-            --target-list=xtensa-softmmu \
-            --enable-sdl \
-            --enable-slirp \
-            --enable-capstone \
-            --enable-gnutls \
-            --enable-libssh \
-            --disable-werror
+          set -euxo pipefail
+          test -f ./configure
+          ./configure --target-list=xtensa-softmmu --extra-cflags=-fPIC \
+            --disable-attr --disable-auth-pam --disable-avx2 --disable-avx512bw \
+            --disable-blkio --disable-bochs --disable-bpf --disable-brlapi \
+            --disable-bzip2 --disable-canokey --disable-cap-ng --disable-capstone \
+            --disable-cloop --disable-cocoa --disable-colo-proxy --disable-coreaudio \
+            --disable-crypto-afalg --disable-curl --disable-curses --disable-dbus-display \
+            --disable-dmg --disable-docs --disable-dsound --disable-fuse --disable-fuse-lseek \
+            --disable-gcrypt --disable-gettext --disable-gio --disable-glusterfs \
+            --disable-gnutls --disable-gtk --disable-gtk-clipboard --disable-guest-agent \
+            --disable-guest-agent-msi --disable-hvf --disable-iconv --disable-jack \
+            --disable-keyring --disable-kvm --disable-l2tpv3 --disable-libdaxctl \
+            --disable-libdw --disable-libiscsi --disable-libkeyutils --disable-libnfs \
+            --disable-libpmem --disable-libssh --disable-libudev --disable-libusb \
+            --disable-libvduse --disable-linux-aio --disable-linux-io-uring --disable-lzfse \
+            --disable-lzo --disable-malloc-trim --disable-membarrier --disable-modules \
+            --disable-mpath --disable-multiprocess --disable-netmap --disable-nettle \
+            --disable-numa --disable-nvmm --disable-opengl --disable-oss --disable-pa \
+            --disable-parallels --disable-pipewire --disable-png --disable-qcow1 \
+            --disable-qed --disable-qga-vss --disable-rbd --disable-rdma --disable-replication \
+            --disable-sdl --disable-sdl-image --disable-seccomp --disable-selinux \
+            --disable-smartcard --disable-snappy --disable-sndio --disable-sparse \
+            --disable-spice --disable-spice-protocol --disable-stack-protector \
+            --disable-tcg --disable-tools --disable-tpm --disable-u2f --disable-usb-redir \
+            --disable-vde --disable-vdi --disable-vhdx --disable-vhost-crypto \
+            --disable-vhost-kernel --disable-vhost-net --disable-vhost-user --disable-vhost-vdpa \
+            --disable-virglrenderer --disable-virtfs --disable-vmdk --disable-vmnet \
+            --disable-vnc --disable-vnc-jpeg --disable-vnc-sasl --disable-vpc \
+            --disable-vte --disable-vvfat --disable-whpx --disable-xen --disable-xkbcommon \
+            --disable-zstd --disable-system --disable-user --disable-linux-user --disable-bsd-user \
+            --disable-pie --disable-debug-tcg --disable-werror --disable-alsa --disable-debug-info \
+            --enable-tcg --enable-system --enable-gcrypt
 
-      - name: Build (make)
+      - name: Build (ninja)
         shell: msys2 {0}
-        env:
-          CFLAGS: ${{ env.CFLAGS }}
         run: |
-          make -j"$(nproc)"
+          set -euxo pipefail
+          ninja -C build
 
-      - name: Install to staging (DESTDIR)
+      - name: Preparar bundle (EXEs + DLLs)
         shell: msys2 {0}
         run: |
-          rm -rf dist bundle
-          mkdir -p dist
-          make install DESTDIR="$(pwd)/dist"
-
-      # 5) Bundle flat + DLLs
-      - name: Criar bundle flat + copiar DLLs de runtime
-        shell: msys2 {0}
-        run: |
-          set -euo pipefail
-          EXE_PATH="$(find dist -type f -name 'qemu-system-xtensa*.exe' -print -quit || true)"
+          set -euxo pipefail
+          EXE_PATH="$(find build -type f -name 'qemu-system-xtensa*.exe' -print -quit || true)"
           if [ -z "${EXE_PATH}" ]; then
-            echo "qemu-system-xtensa*.exe não encontrado em dist/"
-            find dist -maxdepth 3 -type f | sed 's/^/  - /'
+            echo "qemu-system-xtensa*.exe não encontrado em build/"
+            find build -maxdepth 3 -type f | sed 's/^/  - /'
             exit 1
           fi
           BIN_DIR="$(dirname "${EXE_PATH}")"
-          echo "BIN_DIR detectado: ${BIN_DIR}"
+          echo "BIN_DIR: ${BIN_DIR}"
           rm -rf bundle
           mkdir -p bundle
           cp -v "${BIN_DIR}"/qemu*.exe bundle/ || true
-          if [ -d "$MINGW_PREFIX/share/qemu" ]; then
-            mkdir -p bundle/share
-            cp -r "$MINGW_PREFIX/share/qemu" "bundle/share/"
+
+          # Copiar ROMs/pc-bios se necessário (opcionalmente vazio para este alvo)
+          if [ -d "pc-bios" ]; then
+            mkdir -p bundle/pc-bios
+            cp -r pc-bios/* bundle/pc-bios/ || true
           fi
-          if [ -d "$(dirname "${BIN_DIR}")/share/qemu" ]; then
-            mkdir -p bundle/share
-            rsync -a --ignore-existing "$(dirname "${BIN_DIR}")/share/qemu" "bundle/share/" \
-              || cp -r "$(dirname "${BIN_DIR}")/share/qemu" "bundle/share/" || true
-          fi
+
+          # Resolver dependências com ntldd
           mapfile -t DEPS < <(
             find bundle -maxdepth 1 -type f -name '*.exe' -print0 |
             xargs -0 -I{} ntldd -R "{}" |
             sed -n 's/.*=> \([^ ]*\.dll\).*/\1/p' |
-            sed 's#\\#/#g' |
-            awk 'NF && $0 ~ /\.dll$/ {print}' |
-            sort -u
+            sed 's#\\#/#g' | awk 'NF && $0 ~ /\.dll$/ {print}' | sort -u
           )
           for d in "${DEPS[@]}"; do
             if [ -f "$d" ]; then
               cp -n "$d" bundle/
             fi
           done
+
+          # DLLs comuns do runtime MinGW (backup, se ntldd falhar em alguma)
           for dll in \
-            libbz2-1.dll zlib1.dll libzstd.dll \
-            libncursesw6.dll libreadline8.dll \
             libwinpthread-1.dll libstdc++-6.dll libgcc_s_seh-1.dll \
-            SDL2.dll \
             libglib-2.0-0.dll libgobject-2.0-0.dll libgmodule-2.0-0.dll libgthread-2.0-0.dll \
-            libgio-2.0-0.dll libintl-8.dll libiconv-2.dll libpcre2-8-0.dll \
-            libpixman-1-0.dll libslirp-0.dll \
-            libgnutls-30.dll libssh.dll \
-            libcapstone.dll \
-            libjpeg-8.dll libpng16-16.dll libffi-8.dll \
+            libintl-8.dll libiconv-2.dll libpcre2-8-0.dll libpixman-1-0.dll \
+            libgcrypt-20.dll zlib1.dll \
           ; do
             [ -f "/mingw64/bin/$dll" ] && cp -n "/mingw64/bin/$dll" bundle/ || true
           done
-          echo "Conteúdo final da pasta bundle/:"
+
+          echo "Conteúdo final de bundle/:"
           ls -al bundle
 
-      # 6) ZIP + Release
       - name: Gerar ZIP
         shell: pwsh
         run: |
@@ -291,11 +198,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 7) Logs em caso de falha
-      - name: Show logs on failure (config.log / meson-log)
+      - name: Mostrar logs em caso de falha (config.log / meson-log)
         if: ${{ failure() }}
-        shell: bash
+        shell: msys2 {0}
         run: |
-          set -euo pipefail
-          { test -f config.log && echo "===== BEGIN config.log =====" && cat config.log && echo "===== END config.log ====="; } || echo "config.log not found."
-          { test -f build/meson-logs/meson-log.txt && echo "===== BEGIN meson-log.txt =====" && cat build/meson-logs/meson-log.txt && echo "===== END meson-log.txt ====="; } || echo "meson-log.txt not found."
+          { test -f config.log && echo "===== BEGIN config.log =====" && sed -n '1,200p' config.log && echo "===== END config.log ====="; } || true
+          { test -f build/meson-logs/meson-log.txt && echo "===== BEGIN meson-log.txt =====" && sed -n '1,200p' build/meson-logs/meson-log.txt && echo "===== END meson-log.txt ====="; } || true
