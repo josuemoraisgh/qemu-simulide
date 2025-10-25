@@ -227,7 +227,7 @@ jobs:
             --enable-tcg --enable-system --enable-gcrypt
 
       # ======== AJUSTE DE LOG (apenas logging, sem mudar funcionalidade) ========
-      - name: Build (meson compile com logs detalhados)
+      - name: Build (ninja com logs detalhados)
         shell: msys2 {0}
         env:
           CFLAGS: ${{ env.CFLAGS }}
@@ -235,9 +235,9 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p build/_ci_logs
-          # -v: imprime comandos; --print-errorlog: mostra o trecho do erro do meson no final
-          # tee: guarda um log de toda a saída do build
-          meson compile -C build -v --print-errorlog 2>&1 | tee build/_ci_logs/_ci_build.log
+          # -v: ninja imprime cada comando de compilação/ligação
+          ninja -C build -v 2>&1 | tee build/_ci_logs/_ci_build.log
+
 
       - name: Preparar bundle (EXEs + DLLs)
         if: ${{ success() }}
