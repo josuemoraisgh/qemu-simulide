@@ -79,21 +79,20 @@ jobs:
           done
           rm -rf build config.log meson-private meson-info || true
 
-      # Detecta libslirp e decide habilitar/desabilitar no configure
       - name: Detectar libslirp (enable/disable slirp)
         shell: msys2 {0}
         run: |
           set -euo pipefail
           if pkg-config --exists libslirp || pkg-config --exists slirp; then
             echo "SLIRP_FLAG=--enable-slirp" >> "$GITHUB_ENV"
-            echo "libslirp encontrado via pkg-config; habilitando slirp."
+            echo "libslirp encontrado; habilitando slirp."
             pkg-config --cflags --libs libslirp || true
           else
             echo "SLIRP_FLAG=--disable-slirp" >> "$GITHUB_ENV"
-            echo "libslirp NÃO encontrado; desabilitando slirp para não quebrar o build."
+            echo "libslirp não encontrado; desabilitando slirp para não quebrar."
           fi
 
-      # (1) Detecta campos de qemuArena_t e exporta CFLAGS (-Daction=.. -Dtime=..)
+      # 1) Detecta campos de qemuArena_t e exporta CFLAGS (-Daction=.. -Dtime=..)
       - name: Detectar campos do qemuArena_t e setar CFLAGS
         id: detect_arena
         shell: msys2 {0}
@@ -157,7 +156,7 @@ jobs:
             exit 3
           fi
 
-      # (2) Fallback arena
+      # 2) Fallback: neutraliza arena se detecção falhar
       - name: Fallback - neutralizar arena em todos os fontes
         if: steps.detect_arena.outcome == 'failure'
         shell: msys2 {0}
@@ -176,7 +175,7 @@ jobs:
             sed -i -E 's/m_arena->time[[:space:]]*=[^;]*;/\/\* shim: drop arena time *\//g' "${FILE}"
           done
 
-      # (3) Shim STM32 UART
+      # 3) Shim STM32 UART
       - name: Shim STM32 UART (weak stub em system/simuliface.c)
         shell: msys2 {0}
         run: |
@@ -200,7 +199,7 @@ jobs:
             echo "system/simuliface.c não referencia stm32_f103c8_uart_action; nada a fazer."
           fi
 
-      # Configure (igual README) + SLIRP_FLAG decidido acima
+      # Configure (igual README) + SLIRP_FLAG
       - name: Configure (conforme README)
         shell: msys2 {0}
         env:
@@ -243,7 +242,7 @@ jobs:
             --disable-pie --disable-debug-tcg --disable-werror --disable-alsa --disable-debug-info \
             --enable-tcg --enable-system --enable-gcrypt
 
-      # BUILD COM LOGS
+      # ======== BUILD COM LOGS APRIMORADOS ========
       - name: Build (ninja com captura de stdout/stderr)
         shell: msys2 {0}
         env:
