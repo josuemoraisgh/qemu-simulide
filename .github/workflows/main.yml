@@ -69,7 +69,6 @@ jobs:
           which ntldd && ntldd --version
           pkg-config --version || true
 
-      # Higienização do ambiente para não herdar flags estranhas
       - name: Limpar variáveis que alteram o configure
         shell: msys2 {0}
         run: |
@@ -227,18 +226,24 @@ jobs:
             --disable-pie --disable-debug-tcg --disable-werror --disable-alsa --disable-debug-info \
             --enable-tcg --enable-system --enable-gcrypt
 
-      - name: Build (ninja)
+      # ======== AJUSTE DE LOG (apenas logging, sem mudar funcionalidade) ========
+      - name: Build (meson compile com logs detalhados)
         shell: msys2 {0}
         env:
           CFLAGS: ${{ env.CFLAGS }}
+          NINJA_STATUS: "[%f/%t %o/sec] "
         run: |
           set -euxo pipefail
-          ninja -C build
+          mkdir -p build/_ci_logs
+          # -v: imprime comandos; --print-errorlog: mostra o trecho do erro do meson no final
+          # tee: guarda um log de toda a saída do build
+          meson compile -C build -v --print-errorlog 2>&1 | tee build/_ci_logs/_ci_build.log
 
       - name: Preparar bundle (EXEs + DLLs)
+        if: ${{ success() }}
         shell: msys2 {0}
         run: |
-          set -euxo pipefail
+          set -euo pipefail
           EXE_PATH="$(find build -type f -name 'qemu-system-xtensa*.exe' -print -quit || true)"
           if [ -z "${EXE_PATH}" ]; then
             echo "qemu-system-xtensa*.exe não encontrado em build/"
@@ -251,13 +256,11 @@ jobs:
           mkdir -p bundle
           cp -v "${BIN_DIR}"/qemu*.exe bundle/ || true
 
-          # opcional: assets/roms
           if [ -d "pc-bios" ]; then
             mkdir -p bundle/pc-bios
             cp -r pc-bios/* bundle/pc-bios/ || true
           fi
 
-          # Resolver dependências com ntldd
           mapfile -t DEPS < <(
             find bundle -maxdepth 1 -type f -name '*.exe' -print0 |
             xargs -0 -I{} ntldd -R "{}" |
@@ -270,7 +273,6 @@ jobs:
             fi
           done
 
-          # DLLs comuns do runtime MinGW (backup, se algo faltar)
           for dll in \
             libwinpthread-1.dll libstdc++-6.dll libgcc_s_seh-1.dll \
             libglib-2.0-0.dll libgobject-2.0-0.dll libgmodule-2.0-0.dll libgthread-2.0-0.dll \
@@ -284,12 +286,14 @@ jobs:
           ls -al bundle
 
       - name: Gerar ZIP
+        if: ${{ success() }}
         shell: pwsh
         run: |
           if (Test-Path "${{ env.ZIP_NAME }}") { Remove-Item "${{ env.ZIP_NAME }}" }
           Compress-Archive -Path bundle\* -DestinationPath "${{ env.ZIP_NAME }}"
 
       - name: Upload artifact (CI)
+        if: ${{ success() }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ZIP_NAME }}
@@ -297,6 +301,7 @@ jobs:
           if-no-files-found: error
 
       - name: Criar Release com tag
+        if: ${{ success() }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.version }}
@@ -308,9 +313,31 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Mostrar logs em caso de falha (config.log / meson-log)
+      # ======== LOG RICO EM CASO DE FALHA (não altera build, só imprime melhor) ========
+      - name: Mostrar logs em caso de falha (meson/ninja)
         if: ${{ failure() }}
         shell: msys2 {0}
         run: |
-          { test -f config.log && echo "===== BEGIN config.log =====" && sed -n '1,200p' config.log && echo "===== END config.log ====="; } || true
-          { test -f build/meson-logs/meson-log.txt && echo "===== BEGIN meson-log.txt =====" && sed -n '1,200p' build/meson-logs/meson-log.txt && echo "===== END meson-log.txt ====="; } || true
+          set -euo pipefail
+          echo "===== TAIL do build/_ci_logs/_ci_build.log ====="
+          { test -f build/_ci_logs/_ci_build.log && tail -n 400 build/_ci_logs/_ci_build.log || echo "build/_ci_logs/_ci_build.log não existe"; }
+          echo
+          echo "===== TAIL do build/meson-logs/meson-log.txt ====="
+          { test -f build/meson-logs/meson-log.txt && tail -n 400 build/meson-logs/meson-log.txt || echo "meson-log.txt não existe"; }
+          echo
+          echo "===== Linhas FAILED: no meson-log.txt ====="
+          { test -f build/meson-logs/meson-log.txt && grep -n "FAILED:" -n build/meson-logs/meson-log.txt | tail -n 40 || true; }
+          echo
+          echo "===== Últimas ERROR:/warning: do meson-log.txt ====="
+          { test -f build/meson-logs/meson-log.txt && egrep -n "ERROR:|error:|warning:" build/meson-logs/meson-log.txt | tail -n 80 || true; }
+
+      - name: Upload logs (sempre, para análise)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ github.run_id }}
+          path: |
+            build/_ci_logs/_ci_build.log
+            build/meson-logs/meson-log.txt
+            config.log
+          if-no-files-found: ignore
