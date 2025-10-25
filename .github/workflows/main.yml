@@ -38,7 +38,6 @@ jobs:
         with:
           submodules: false
           fetch-depth: 0
-          # Mantém credenciais para push da tag
           persist-credentials: true
 
       - name: Setup MSYS2 (MINGW64)
@@ -81,8 +80,8 @@ jobs:
           done
           rm -rf build config.log meson-private meson-info || true
 
-      # Detecta libslirp e prepara flags (garante include/lib mesmo que configure não propague)
-      - name: Detectar libslirp (enable/disable + flags de compilação)
+      # Detecta libslirp e prepara flags (garante include/lib mesmo se configure não propagar)
+      - name: Detectar libslirp (enable/disable + flags)
         shell: msys2 {0}
         run: |
           set -euo pipefail
@@ -92,17 +91,17 @@ jobs:
 
           if [ -n "$SLIRP_PKG" ]; then
             echo "SLIRP_FLAG=--enable-slirp" >> "$GITHUB_ENV"
-            # Exporta CFLAGS/LDFLAGS extras para garantir que <slirp/libslirp.h> seja encontrado
             CF="$(pkg-config --cflags "$SLIRP_PKG" || true)"
             LF="$(pkg-config --libs "$SLIRP_PKG" || true)"
+            # Exporta via CPPFLAGS/LDFLAGS para o build inteiro (configure+ninja)
             echo "CPPFLAGS=${CF}" >> "$GITHUB_ENV"
             echo "LDFLAGS=${LF}" >> "$GITHUB_ENV"
-            echo "libslirp detectado via pkg-config ($SLIRP_PKG)."
+            echo "libslirp detectado ($SLIRP_PKG). Flags: ${CF} | ${LF}"
           else
             echo "SLIRP_FLAG=--disable-slirp" >> "$GITHUB_ENV"
             echo "CPPFLAGS=" >> "$GITHUB_ENV"
             echo "LDFLAGS=" >> "$GITHUB_ENV"
-            echo "libslirp NÃO detectado; slirp será desabilitado para não quebrar o build."
+            echo "libslirp não detectado; slirp será desabilitado para não quebrar."
           fi
 
       # 1) Detecta campos de qemuArena_t e exporta CFLAGS (-Daction=.. -Dtime=..)
@@ -163,7 +162,6 @@ jobs:
 
           if [ -n "${FOUND_A}" ] && [ -n "${FOUND_T}" ]; then
             echo "Mapeado: action -> ${FOUND_A} | time -> ${FOUND_T}"
-            # Anexa aos CPPFLAGS/CFLAGS existentes (se houver)
             echo "CFLAGS=${CFLAGS:+$CFLAGS }-Daction=${FOUND_A} -Dtime=${FOUND_T}" >> "$GITHUB_ENV"
           else
             echo "Não foi possível mapear automaticamente."
@@ -184,3 +182,232 @@ jobs:
           printf 'Patchando:\n - %s\n' "${ARENA_FILES[@]}"
           for FILE in "${ARENA_FILES[@]}"; do
             sed -i -E 's/while[[:space:]]*\([[:space:]]*m_arena->action[[:space:]]*\)/while(0) \/* shim: no wait *\//g' "${FILE}"
+            sed -i -E 's/m_arena->action[[:space:]]*=[^;]*;/\/\* shim: drop arena action *\//g' "${FILE}"
+            sed -i -E 's/m_arena->time[[:space:]]*=[[:space:]]*qemuTime[[:space:]]*;/\(void\)qemuTime; \/* shim *\//g' "${FILE}"
+            sed -i -E 's/m_arena->time[[:space:]]*=[^;]*;/\/\* shim: drop arena time *\//g' "${FILE}"
+          done
+
+      # 3) Shim STM32 UART
+      - name: Shim STM32 UART (weak stub em system/simuliface.c)
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          FILE="system/simuliface.c"
+          if [ -f "${FILE}" ] && grep -q 'stm32_f103c8_uart_action' "${FILE}"; then
+            if ! grep -q 'WEAK_STM32_UART_SHIM' "${FILE}"; then
+              echo "Inserindo weak stub de stm32_f103c8_uart_action em ${FILE}"
+              tmp="${FILE}.tmp"
+              {
+                printf "#ifndef WEAK_STM32_UART_SHIM\n#define WEAK_STM32_UART_SHIM 1\n"
+                printf "__attribute__((weak)) void stm32_f103c8_uart_action(void){}\n"
+                printf "#endif\n"
+                cat "${FILE}"
+              } > "${tmp}"
+              mv "${tmp}" "${FILE}"
+            else
+              echo "Shim já presente; seguindo."
+            fi
+          else
+            echo "system/simuliface.c não referencia stm32_f103c8_uart_action; nada a fazer."
+          fi
+
+      # Configure (igual README) + SLIRP_FLAG e com CPPFLAGS/LDFLAGS propagados
+      - name: Configure (conforme README)
+        shell: msys2 {0}
+        env:
+          PKG_CONFIG_PATH: /mingw64/lib/pkgconfig:/usr/lib/pkgconfig
+          CFLAGS: ${{ env.CFLAGS }}
+          CPPFLAGS: ${{ env.CPPFLAGS }}
+          LDFLAGS: ${{ env.LDFLAGS }}
+          SLIRP_FLAG: ${{ env.SLIRP_FLAG }}
+        run: |
+          set -euxo pipefail
+          test -f ./configure
+          ./configure --target-list=xtensa-softmmu --extra-cflags=-fPIC \
+            ${SLIRP_FLAG} \
+            --disable-attr --disable-auth-pam --disable-avx2 --disable-avx512bw \
+            --disable-blkio --disable-bochs --disable-bpf --disable-brlapi \
+            --disable-bzip2 --disable-canokey --disable-cap-ng --disable-capstone \
+            --disable-cloop --disable-cocoa --disable-colo-proxy --disable-coreaudio \
+            --disable-crypto-afalg --disable-curl --disable-curses --disable-dbus-display \
+            --disable-dmg --disable-docs --disable-dsound --disable-fuse --disable-fuse-lseek \
+            --disable-gcrypt --disable-gettext --disable-gio --disable-glusterfs \
+            --disable-gnutls --disable-gtk --disable-gtk-clipboard --disable-guest-agent \
+            --disable-guest-agent-msi --disable-hvf --disable-iconv --disable-jack \
+            --disable-keyring --disable-kvm --disable-l2tpv3 --disable-libdaxctl \
+            --disable-libdw --disable-libiscsi --disable-libkeyutils --disable-libnfs \
+            --disable-libpmem --disable-libssh --disable-libudev --disable-libusb \
+            --disable-libvduse --disable-linux-aio --disable-linux-io-uring --disable-lzfse \
+            --disable-lzo --disable-malloc-trim --disable-membarrier --disable-modules \
+            --disable-mpath --disable-multiprocess --disable-netmap --disable-nettle \
+            --disable-numa --disable-nvmm --disable-opengl --disable-oss --disable-pa \
+            --disable-parallels --disable-pipewire --disable-png --disable-qcow1 \
+            --disable-qed --disable-qga-vss --disable-rbd --disable-rdma --disable-replication \
+            --disable-sdl --disable-sdl-image --disable-seccomp --disable-selinux \
+            --disable-smartcard --disable-snappy --disable-sndio --disable-sparse \
+            --disable-spice --disable-spice-protocol --disable-stack-protector \
+            --disable-tcg --disable-tools --disable-tpm --disable-u2f --disable-usb-redir \
+            --disable-vde --disable-vdi --disable-vhdx --disable-vhost-crypto \
+            --disable-vhost-kernel --disable-vhost-net --disable-vhost-user --disable-vhost-vdpa \
+            --disable-virglrenderer --disable-virtfs --disable-vmdk --disable-vmnet \
+            --disable-vnc --disable-vnc-jpeg --disable-vnc-sasl --disable-vpc \
+            --disable-vte --disable-vvfat --disable-whpx --disable-xen --disable-xkbcommon \
+            --disable-zstd --disable-system --disable-user --disable-linux-user --disable-bsd-user \
+            --disable-pie --disable-debug-tcg --disable-werror --disable-alsa --disable-debug-info \
+            --enable-tcg --enable-system --enable-gcrypt
+
+      # ======== BUILD COM LOGS APRIMORADOS ========
+      - name: Build (ninja com captura de stdout/stderr)
+        shell: msys2 {0}
+        env:
+          CFLAGS: ${{ env.CFLAGS }}
+          CPPFLAGS: ${{ env.CPPFLAGS }}
+          LDFLAGS: ${{ env.LDFLAGS }}
+          NINJA_STATUS: "[%f/%t %o/sec] "
+          TERM: dumb
+        run: |
+          set -Eeuo pipefail
+          mkdir -p build/_ci_logs
+          (
+            set +e
+            ninja -C build -v \
+              1> >(tee build/_ci_logs/_ci_stdout.log) \
+              2> >(tee build/_ci_logs/_ci_stderr.log >&2)
+            echo $? > build/_ci_logs/_ci_rc.txt
+          )
+          RC="$(cat build/_ci_logs/_ci_rc.txt || echo 1)"
+          if [ "$RC" -ne 0 ]; then
+            echo "Build falhou com RC=$RC"
+            exit "$RC"
+          fi
+
+      - name: Preparar bundle (EXEs + DLLs) — robusto
+        if: ${{ success() }}
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          EXE_PATH="$( (find build -type f -name 'qemu-system-xtensa*.exe' -print -quit 2>/dev/null) || true )"
+          if [ -z "${EXE_PATH}" ]; then
+            echo "qemu-system-xtensa*.exe não encontrado em build/"
+            (find build -maxdepth 3 -type f 2>/dev/null | sed 's/^/  - /' || true)
+            exit 1
+          fi
+          BIN_DIR="$(dirname "${EXE_PATH}")"
+          echo "BIN_DIR: ${BIN_DIR}"
+          rm -rf bundle
+          mkdir -p bundle
+          cp -v "${BIN_DIR}"/qemu*.exe bundle/ || true
+
+          if [ -d "pc-bios" ]; then
+            mkdir -p bundle/pc-bios
+            cp -r pc-bios/* bundle/pc-bios/ || true
+          fi
+
+          TMP_DEPS="$(mktemp)"; : > "${TMP_DEPS}"
+          shopt -s nullglob
+          for exe in bundle/*.exe; do
+            ntldd -R "$exe" 2>/dev/null | awk '/=>/ && /\.dll/ {gsub("\\\\","/"); print $3}' >> "${TMP_DEPS}" || true
+          done
+          if [ -s "${TMP_DEPS}" ]; then
+            sort -u "${TMP_DEPS}" | while IFS= read -r dll; do
+              [ -f "$dll" ] && cp -n "$dll" bundle/ || true
+            done
+          fi
+          rm -f "${TMP_DEPS}"
+
+          for dll in \
+            libwinpthread-1.dll libstdc++-6.dll libgcc_s_seh-1.dll \
+            libglib-2.0-0.dll libgobject-2.0-0.dll libgmodule-2.0-0.dll libgthread-2.0-0.dll \
+            libintl-8.dll libiconv-2.dll libpcre2-8-0.dll libpixman-1-0.dll \
+            libgcrypt-20.dll zlib1.dll \
+          ; do
+            [ -f "/mingw64/bin/$dll" ] && cp -n "/mingw64/bin/$dll" bundle/ || true
+          done
+
+          ls -al bundle || true
+
+      - name: Gerar ZIP
+        if: ${{ success() }}
+        shell: pwsh
+        run: |
+          if (Test-Path "${{ env.ZIP_NAME }}") { Remove-Item "${{ env.ZIP_NAME }}" }
+          Compress-Archive -Path bundle\* -DestinationPath "${{ env.ZIP_NAME }}"
+
+      - name: Upload artifact (CI)
+        if: ${{ success() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIP_NAME }}
+          path: ${{ env.ZIP_NAME }}
+          if-no-files-found: error
+
+      # Tag/Release: robusto em detached HEAD
+      - name: Criar e enviar tag (idempotente)
+        if: ${{ success() }}
+        shell: bash
+        env:
+          TAG_NAME: ${{ inputs.version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euxo pipefail
+          git config --global --add safe.directory "$PWD"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --tags --force --prune
+          if git rev-parse -q --verify "refs/tags/${TAG_NAME}" >/dev/null; then
+            echo "Tag ${TAG_NAME} já existe localmente."
+          else
+            git tag -a "${TAG_NAME}" -m "Release ${TAG_NAME}"
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG_NAME}" >/dev/null 2>&1; then
+            echo "Tag ${TAG_NAME} já existe no remoto; seguindo."
+          else
+            git push origin "refs/tags/${TAG_NAME}"
+          fi
+
+      - name: Criar Release com tag
+        if: ${{ success() }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version }}
+          name: qemu-simulide ${{ inputs.version }}
+          body: ${{ inputs.notes }}
+          prerelease: ${{ inputs.prerelease }}
+          target_commitish: ${{ github.sha }}
+          files: ${{ env.ZIP_NAME }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Mostrar logs em caso de falha (ninja/meson)
+        if: ${{ failure() }}
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          echo "===== ÚLTIMAS 300 linhas de _ci_stderr.log ====="
+          { test -f build/_ci_logs/_ci_stderr.log && tail -n 300 build/_ci_logs/_ci_stderr.log || echo "sem _ci_stderr.log"; }
+          echo
+          echo "===== ÚLTIMAS 200 linhas de _ci_stdout.log ====="
+          { test -f build/_ci_logs/_ci_stdout.log && tail -n 200 build/_ci_logs/_ci_stdout.log || echo "sem _ci_stdout.log"; }
+          echo
+          echo "===== grep 'error:' no stderr (últimas 120) ====="
+          { test -f build/_ci_logs/_ci_stderr.log && grep -inE "error:|fatal error:" build/_ci_logs/_ci_stderr.log | tail -n 120 || true; }
+          echo
+          echo "===== grep 'FAILED:' no meson-log (últimas 40) ====="
+          { test -f build/meson-logs/meson-log.txt && grep -n "FAILED:" build/meson-logs/meson-log.txt | tail -n 40 || echo "sem meson-log.txt"; }
+          echo
+          echo "===== TAIL do meson-log.txt (400 linhas) ====="
+          { test -f build/meson-logs/meson-log.txt && tail -n 400 build/meson-logs/meson-log.txt || true; }
+
+      - name: Upload logs (sempre)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ github.run_id }}
+          path: |
+            build/_ci_logs/_ci_stdout.log
+            build/_ci_logs/_ci_stderr.log
+            build/_ci_logs/_ci_rc.txt
+            build/meson-logs/meson-log.txt
+            config.log
+          if-no-files-found: warn
