@@ -53,64 +53,61 @@ uint64_t getQemu_ps(void)
     return qemuTime;
 }
 
+static void getNextEvent(void)
+{
+    while( !m_arena->qemuTime ) // Wait for SimuliDE
+    {
+        if( m_timeout++ > 1e9 ) break; // Terminate process if timed out
+    }
+    m_timeout = 0;
+
+    uint64_t nextTime_ns = m_arena->qemuTime/1000;
+    m_arena->qemuTime = 0;
+
+    if( m_lastQemuTime != nextTime_ns )
+    {
+        //printf("Qemu: config timer at %lu\n", nextTime ); fflush( stdout );
+        m_lastQemuTime = nextTime_ns;
+        timer_mod_ns( qtimer, nextTime_ns );
+    }
+    //printf("Qemu: Next time %lu\n", m_lastQemuTime*1000 ); fflush( stdout );
+}
+
 void doAction(void)
 {
+    //printf("Qemu: doAction at time %lu\n", getQemu_ps() ); fflush( stdout );
     m_arena->simuTime = getQemu_ps();
 
     while( m_arena->simuTime )  // Wait for SimulIDE to execute action
     {
-        m_timeout += 1;
-        if( m_timeout > 1e9 ) break; // Terminate process if timed out
+        if( m_arena->qemuAction )
+        {
+            switch( m_arena->qemuAction )
+            {
+            case SIM_I2C: break;
+            case SIM_USART: stm32_f103c8_uart_action(); break;
+            default: break;
+            }
+            m_arena->qemuAction = 0;
+            //while( !m_arena->qemuAction ){;}
+        }
+        if( m_timeout++ > 1e9 ) break; // Terminate process if timed out
     }
     m_timeout = 0;
 
-    printf("Qemu: waiting for Time %lu\n", m_arena->qemuTime ); fflush( stdout );
-    while( m_arena->qemuTime == 0 )  // Wait for simulide to set next time
-    {
-        printf("Qemu: qemuTime = 0 \n" ); fflush( stdout );
-        m_timeout += 1;
-        if( m_timeout > 1e9 ) break; // Terminate loop if timed out
-    }
-    m_timeout = 0;
+    //printf("Qemu: qemuAction %u %u\n", m_arena->qemuAction, m_arena->data8 );
+    //printf("      at time %lu\n", getQemu_ps() ); fflush( stdout );
 
-    uint64_t nextTime = m_arena->qemuTime/1000;
-
-    /// if( nextTime > 1e9 )
-    ///     nextTime = qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL ) + m_ClkPeriod;
-
-    if( m_lastQemuTime != nextTime )
-    {
-        //printf("Qemu: config timer at %lu\n", nextTime ); fflush( stdout );
-        m_lastQemuTime = nextTime;
-        timer_mod_ns( qtimer, nextTime );
-    }
-    //printf("Qemu: Next time %lu\n", m_lastQemuTime ); fflush( stdout );
+    getNextEvent();
 }
 
 static void simu_event( void* opaque )
 {
-    //printf("Qemu: simu_event at %lu\n", qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL ) ); fflush( stdout );
+    //printf("Qemu: simu_event at %lu\n", getQemu_ps() ); fflush( stdout );
     if( !m_arena->running ) return;
 
     m_arena->simuAction = SIM_EVENT;
     doAction();
-
-    if( m_arena->qemuAction != 0 )
-    {
-        //printf("Qemu: qemuAction %u %u\n", m_arena->qemuAction, m_arena->data8 );
-        //printf("      at time %lu\n", getQemu_ps() ); fflush( stdout );
-
-        switch( m_arena->qemuAction )
-        {
-        case SIM_I2C: break;
-        case SIM_USART: stm32_f103c8_uart_action(); break;
-        default: break;
-        }
-        m_arena->qemuAction = 0;
-    }
-
-    //printf("Qemu: simu_event at %lu\n", qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL ) ); fflush( stdout );
-    //doAction();
 }
 
 int simuMain( int argc, char** argv )
@@ -184,8 +181,13 @@ int simuMain( int argc, char** argv )
 
     printf("Qemu: initialized\n" );fflush( stdout );
 
-    m_arena->simuAction = SIM_EVENT;  // QemuDevice::stamp() unblocked here
-    doAction();
+    while( m_arena->qemuTime == 0 )  // Wait for simulide to set next time
+    {
+        m_timeout += 1;
+        if( m_timeout > 1e9 ) break; // Terminate loop if timed out
+    }
+    m_timeout = 0;
+    getNextEvent();
 
     printf("Qemu: starting main loop\n");fflush( stdout );
     int status = qemu_main_loop();
