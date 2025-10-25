@@ -54,6 +54,7 @@ jobs:
             mingw-w64-x86_64-pixman
             mingw-w64-x86_64-libgcrypt
             mingw-w64-x86_64-zlib
+            mingw-w64-x86_64-libslirp
             mingw-w64-x86_64-ninja
             mingw-w64-x86_64-meson
             mingw-w64-x86_64-ntldd
@@ -77,6 +78,20 @@ jobs:
             unset "$v" || true
           done
           rm -rf build config.log meson-private meson-info || true
+
+      # Detecta libslirp e decide habilitar/desabilitar no configure
+      - name: Detectar libslirp (enable/disable slirp)
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          if pkg-config --exists libslirp || pkg-config --exists slirp; then
+            echo "SLIRP_FLAG=--enable-slirp" >> "$GITHUB_ENV"
+            echo "libslirp encontrado via pkg-config; habilitando slirp."
+            pkg-config --cflags --libs libslirp || true
+          else
+            echo "SLIRP_FLAG=--disable-slirp" >> "$GITHUB_ENV"
+            echo "libslirp NÃO encontrado; desabilitando slirp para não quebrar o build."
+          fi
 
       # (1) Detecta campos de qemuArena_t e exporta CFLAGS (-Daction=.. -Dtime=..)
       - name: Detectar campos do qemuArena_t e setar CFLAGS
@@ -142,7 +157,7 @@ jobs:
             exit 3
           fi
 
-      # (2) Fallback: neutraliza usos de m_arena->action/time quando detecção falhar
+      # (2) Fallback arena
       - name: Fallback - neutralizar arena em todos os fontes
         if: steps.detect_arena.outcome == 'failure'
         shell: msys2 {0}
@@ -161,7 +176,7 @@ jobs:
             sed -i -E 's/m_arena->time[[:space:]]*=[^;]*;/\/\* shim: drop arena time *\//g' "${FILE}"
           done
 
-      # (3) Shim STM32 UART: adiciona stub fraco se o símbolo aparecer em system/simuliface.c
+      # (3) Shim STM32 UART
       - name: Shim STM32 UART (weak stub em system/simuliface.c)
         shell: msys2 {0}
         run: |
@@ -185,16 +200,18 @@ jobs:
             echo "system/simuliface.c não referencia stm32_f103c8_uart_action; nada a fazer."
           fi
 
-      # Configure (igual README)
+      # Configure (igual README) + SLIRP_FLAG decidido acima
       - name: Configure (conforme README)
         shell: msys2 {0}
         env:
           PKG_CONFIG_PATH: /mingw64/lib/pkgconfig:/usr/lib/pkgconfig
           CFLAGS: ${{ env.CFLAGS }}
+          SLIRP_FLAG: ${{ env.SLIRP_FLAG }}
         run: |
           set -euxo pipefail
           test -f ./configure
           ./configure --target-list=xtensa-softmmu --extra-cflags=-fPIC \
+            ${SLIRP_FLAG} \
             --disable-attr --disable-auth-pam --disable-avx2 --disable-avx512bw \
             --disable-blkio --disable-bochs --disable-bpf --disable-brlapi \
             --disable-bzip2 --disable-canokey --disable-cap-ng --disable-capstone \
@@ -226,7 +243,7 @@ jobs:
             --disable-pie --disable-debug-tcg --disable-werror --disable-alsa --disable-debug-info \
             --enable-tcg --enable-system --enable-gcrypt
 
-      # ======== BUILD COM LOGS APRIMORADOS ========
+      # BUILD COM LOGS
       - name: Build (ninja com captura de stdout/stderr)
         shell: msys2 {0}
         env:
@@ -249,12 +266,11 @@ jobs:
             exit "$RC"
           fi
 
-      - name: Preparar bundle (EXEs + DLLs) — robusto (sem pipelines frágeis)
+      - name: Preparar bundle (EXEs + DLLs) — robusto
         if: ${{ success() }}
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          # Localiza o executável
           EXE_PATH="$( (find build -type f -name 'qemu-system-xtensa*.exe' -print -quit 2>/dev/null) || true )"
           if [ -z "${EXE_PATH}" ]; then
             echo "qemu-system-xtensa*.exe não encontrado em build/"
@@ -263,27 +279,20 @@ jobs:
           fi
           BIN_DIR="$(dirname "${EXE_PATH}")"
           echo "BIN_DIR: ${BIN_DIR}"
-
-          # Prepara bundle
           rm -rf bundle
           mkdir -p bundle
           cp -v "${BIN_DIR}"/qemu*.exe bundle/ || true
 
-          # Assets opcionais
           if [ -d "pc-bios" ]; then
             mkdir -p bundle/pc-bios
             cp -r pc-bios/* bundle/pc-bios/ || true
           fi
 
-          # Coleta dependências DLL de forma segura (sem pipeline com pipefail)
-          TMP_DEPS="$(mktemp)"
-          : > "${TMP_DEPS}"
+          TMP_DEPS="$(mktemp)"; : > "${TMP_DEPS}"
           shopt -s nullglob
           for exe in bundle/*.exe; do
-            # ntldd lista dependências; ignorar erros individuais para não abortar
             ntldd -R "$exe" 2>/dev/null | awk '/=>/ && /\.dll/ {gsub("\\\\","/"); print $3}' >> "${TMP_DEPS}" || true
           done
-          # Deduplica e copia
           if [ -s "${TMP_DEPS}" ]; then
             sort -u "${TMP_DEPS}" | while IFS= read -r dll; do
               [ -f "$dll" ] && cp -n "$dll" bundle/ || true
@@ -291,7 +300,6 @@ jobs:
           fi
           rm -f "${TMP_DEPS}"
 
-          # DLLs comuns do runtime MinGW (backup, caso alguma falte)
           for dll in \
             libwinpthread-1.dll libstdc++-6.dll libgcc_s_seh-1.dll \
             libglib-2.0-0.dll libgobject-2.0-0.dll libgmodule-2.0-0.dll libgthread-2.0-0.dll \
@@ -301,7 +309,6 @@ jobs:
             [ -f "/mingw64/bin/$dll" ] && cp -n "/mingw64/bin/$dll" bundle/ || true
           done
 
-          echo "Conteúdo final de bundle/:"
           ls -al bundle || true
 
       - name: Gerar ZIP
@@ -319,6 +326,24 @@ jobs:
           path: ${{ env.ZIP_NAME }}
           if-no-files-found: error
 
+      - name: Criar e enviar tag (idempotente)
+        if: ${{ success() }}
+        shell: bash
+        env:
+          TAG_NAME: ${{ inputs.version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euxo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG_NAME}" >/dev/null 2>&1; then
+            echo "Tag ${TAG_NAME} já existe no remoto; seguindo."
+          else
+            git tag -a "${TAG_NAME}" -m "Release ${TAG_NAME}"
+            git push origin "refs/tags/${TAG_NAME}"
+          fi
+
       - name: Criar Release com tag
         if: ${{ success() }}
         uses: softprops/action-gh-release@v2
@@ -332,7 +357,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ======== LOG RICO EM CASO DE FALHA (não altera build, só imprime melhor) ========
       - name: Mostrar logs em caso de falha (ninja/meson)
         if: ${{ failure() }}
         shell: msys2 {0}
