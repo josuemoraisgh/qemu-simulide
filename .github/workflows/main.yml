@@ -104,7 +104,7 @@ jobs:
             echo "libslirp NÃO detectado; slirp será desabilitado."
           fi
 
-      # === Configure primeiro (gera headers necessários) ===
+      # 1) Configure primeiro (gera diretórios/headers usados pelo build)
       - name: Configure (conforme README)
         shell: msys2 {0}
         env:
@@ -151,108 +151,68 @@ jobs:
             --enable-tcg --enable-system \
             --disable-werror
 
-      # === Arena: map-or-fail AGORA (com headers gerados) ===
+      # 2) Arena: mapear por frequência real de uso (FAIL se não resolver)
       - name: Mapear qemuArena_t (exportar -Daction/-Dtime)
         id: detect_arena
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          # Diretórios de include (fonte + gerados)
-          INC_DIRS=( . include system hw qapi build build/include )
-          # Monte uma lista de headers existentes
-          mapfile -t ALL_HDRS < <(
-            for d in "${INC_DIRS[@]}"; do
-              [ -d "$d" ] && find "$d" -type f -name '*.h'
-            done | sort -u
-          )
-
-          # Gere um header "amalgamado" para maximizar visibilidade do typedef
-          AMALG="/tmp/_amalgam.h"
-          : > "$AMALG"
-          for h in "${ALL_HDRS[@]}"; do
-            # evita incluir headers enormes duplicados desnecessariamente
-            printf '#include "%s"\n' "$h" >> "$AMALG"
+          # Coleta campos usados como m_arena->X em system/ e hw/
+          TMP_ALL="$(mktemp)"; : > "$TMP_ALL"
+          for d in system hw; do
+            [ -d "$d" ] || continue
+            grep -RIn --include='*.c' -E 'm_arena->([A-Za-z_][A-Za-z0-9_]*)' "$d" \
+              | sed -E 's/.*m_arena->([A-Za-z_][A-Za-z0-9_]*).*/\1/' >> "$TMP_ALL" || true
           done
-
-          # Extraia possíveis campos do typedef
-          TMP_FIELDS="$(mktemp)"; : > "${TMP_FIELDS}"
-          grep -RIl -E 'qemuArena_t|struct[[:space:]]+qemuArena' "${ALL_HDRS[@]}" 2>/dev/null \
-            | sort -u | while read -r H; do
-              awk '
-                /typedef[[:space:]]+struct[[:space:]]+qemuArena/ {inblk=1}
-                inblk && /};/ {inblk=0}
-                inblk {
-                  line=$0
-                  sub(/\/\/.*/,"",line)
-                  gsub(/\/\*([^*]|\*+[^*\/])*\*\//,"",line)
-                  if (line ~ /;/) {
-                    sub(/.*[[:space:]\*]([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*;.*/,"\\1",line)
-                    if (line ~ /^[A-Za-z_][A-Za-z0-9_]*$/) print line
-                  }
-                }
-              ' "$H" || true
-            done | sort -u > "${TMP_FIELDS}"
-
-          # fallback: nomes usados em código
-          if [ ! -s "${TMP_FIELDS}" ]; then
-            grep -RIn --include='*.c' -E 'm_arena->([A-Za-z_][A-Za-z0-9_]*)' hw system \
-              | sed -E 's/.*m_arena->([A-Za-z_][A-Za-z0-9_]*).*/\1/' \
-              | sort -u > "${TMP_FIELDS}" || true
-          fi
-
-          if [ ! -s "${TMP_FIELDS}" ]; then
-            echo "::error::Não consegui obter lista de campos de arena (mesmo após configure)."
+          if ! [ -s "$TMP_ALL" ]; then
+            echo "::error::Não encontrei usos de m_arena->X em system/ ou hw/."
             exit 43
           fi
-          mapfile -t FIELDS < "${TMP_FIELDS}"
 
+          echo "Campos por frequência:"
+          sort "$TMP_ALL" | uniq -c | sort -nr | sed 's/^/  /'
+
+          # Preferências
           PREF_ACTION=(action simuAction qemuAction op cmd event state)
           PREF_TIME=(time simuTime qemuTime ts timestamp time_ns ticks tstamp)
 
-          try_probe () {
-            A="$1"; T="$2"
-            : > /tmp/_probe.c
-            echo '#include <stdint.h>' >> /tmp/_probe.c
-            echo '#ifndef qemuArena_t' >> /tmp/_probe.c
-            echo 'typedef struct qemuArena qemuArena_t;' >> /tmp/_probe.c
-            echo '#endif' >> /tmp/_probe.c
-            echo '#include "/tmp/_amalgam.h"' >> /tmp/_probe.c
-            echo "int main(void){ volatile qemuArena_t *p=(volatile qemuArena_t*)0; (void)p->${A}; (void)p->${T}; return 0; }" >> /tmp/_probe.c
-            gcc -m64 -I. -Ibuild -Ibuild/include -c /tmp/_probe.c -o /tmp/_probe.o >/dev/null 2>&1
-          }
-
-          FOUND_A=""; FOUND_T=""
-          for a in "${PREF_ACTION[@]}"; do
-            for t in "${PREF_TIME[@]}"; do
-              if printf '%s\n' "${FIELDS[@]}" | grep -qx "$a" && printf '%s\n' "${FIELDS[@]}" | grep -qx "$t"; then
-                if try_probe "$a" "$t"; then FOUND_A="$a"; FOUND_T="$t"; break 2; fi
+          pick_pref () {
+            which="$1"; shift
+            for k in "$@"; do
+              if grep -qx "$k" <(sed -n 's/.*m_arena->\([A-Za-z_][A-Za-z0-9_]*\).*/\1/p' "$TMP_ALL" | sort -u); then
+                echo "$k"; return 0
               fi
             done
-          done
+            return 1
+          }
 
-          if [ -z "$FOUND_A" ]; then
-            for a in "${FIELDS[@]}"; do
-              for t in "${FIELDS[@]}"; do
-                [ "$a" = "$t" ] && continue
-                if try_probe "$a" "$t"; then FOUND_A="$a"; FOUND_T="$t"; break 2; fi
-              done
-            done
-          fi
+          A="$(pick_pref A "${PREF_ACTION[@]}" || true)"
+          T="$(pick_pref T "${PREF_TIME[@]}" || true)"
 
-          if [ -z "$FOUND_A" ] || [ -z "$FOUND_T" ]; then
+          if [ -z "$A" ] || [ -z "$T" ]; then
             echo "::group::Diagnóstico arena"
-            echo "Includes: -I. -Ibuild -Ibuild/include"
-            echo "Total de headers amalgamados: ${#ALL_HDRS[@]}"
-            echo "Campos candidatos:"; printf '  - %s\n' "${FIELDS[@]}"
+            echo "Ação preferida encontrada: ${A:-<nenhuma>}"
+            echo "Tempo preferido encontrado: ${T:-<nenhum>}"
             echo "::endgroup::"
-            echo "::error::Falha ao mapear automaticamente os campos de arena (action/time) mesmo após configure."
+            echo "::error::Falha ao mapear automaticamente (action/time) pelos usos de m_arena."
             exit 43
           fi
 
-          echo "Mapeado: action=${FOUND_A} time=${FOUND_T}"
-          echo "CFLAGS=${CFLAGS:+$CFLAGS }-Daction=${FOUND_A} -Dtime=${FOUND_T}" >> "$GITHUB_ENV"
+          if [ "$A" = "$T" ]; then
+            echo "::warning::Action e Time iguais (${A}); tentando segundo melhor."
+            # remove o escolhido e tenta outro para T
+            for k in "${PREF_TIME[@]}"; do
+              [ "$k" = "$A" ] && continue
+              if grep -qx "$k" <(sed -n 's/.*m_arena->\([A-Za-z_][A-Za-z0-9_]*\).*/\1/p' "$TMP_ALL" | sort -u); then
+                T="$k"; break
+              fi
+            done
+          fi
 
-      # === Shim UART: inserir DEPOIS dos includes (só se necessário) ===
+          echo "Mapeado: action=${A} time=${T}"
+          echo "CFLAGS=${CFLAGS:+$CFLAGS }-Daction=${A} -Dtime=${T}" >> "$GITHUB_ENV"
+
+      # 3) Shim UART: inserir DEPOIS dos includes (se necessário)
       - name: Shim STM32 UART (inserir após #include em system/simuliface.c)
         shell: msys2 {0}
         run: |
@@ -266,6 +226,7 @@ jobs:
             echo "system/simuliface.c não existe; nada a fazer."
             exit 0
           fi
+          # se já existe uma definição real, não insere
           if grep -RIl --include='*.c' -E '^[[:space:]]*void[[:space:]]+stm32_f103c8_uart_action[[:space:]]*\(' . >/dev/null 2>&1; then
             echo "Definição real já presente; nenhum shim."
             exit 0
@@ -290,7 +251,7 @@ jobs:
           mv "${FILE}.new" "${FILE}"
           echo "Shim fraco inserido após includes em ${FILE}"
 
-      # === Build ===
+      # 4) Build
       - name: Build (ninja com captura de stdout/stderr)
         shell: msys2 {0}
         env:
