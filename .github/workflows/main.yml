@@ -56,6 +56,8 @@ jobs:
             mingw-w64-x86_64-libgcrypt
             mingw-w64-x86_64-zlib
             mingw-w64-x86_64-libslirp
+            mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-capstone
             mingw-w64-x86_64-ninja
             mingw-w64-x86_64-meson
             mingw-w64-x86_64-ntldd
@@ -80,7 +82,7 @@ jobs:
           done
           rm -rf build config.log meson-private meson-info || true
 
-      # Detecta libslirp e prepara flags (garante include/lib mesmo se configure não propagar)
+      # SLIRP: detecta e injeta flags (ou desabilita sem quebrar o build)
       - name: Detectar libslirp (enable/disable + flags)
         shell: msys2 {0}
         run: |
@@ -88,38 +90,52 @@ jobs:
           SLIRP_PKG=""
           if pkg-config --exists libslirp; then SLIRP_PKG="libslirp"; fi
           if [ -z "$SLIRP_PKG" ] && pkg-config --exists slirp; then SLIRP_PKG="slirp"; fi
-
           if [ -n "$SLIRP_PKG" ]; then
             echo "SLIRP_FLAG=--enable-slirp" >> "$GITHUB_ENV"
             CF="$(pkg-config --cflags "$SLIRP_PKG" || true)"
             LF="$(pkg-config --libs "$SLIRP_PKG" || true)"
-            # Exporta via CPPFLAGS/LDFLAGS para o build inteiro (configure+ninja)
             echo "CPPFLAGS=${CF}" >> "$GITHUB_ENV"
             echo "LDFLAGS=${LF}" >> "$GITHUB_ENV"
-            echo "libslirp detectado ($SLIRP_PKG). Flags: ${CF} | ${LF}"
+            echo "libslirp detectado ($SLIRP_PKG)."
           else
             echo "SLIRP_FLAG=--disable-slirp" >> "$GITHUB_ENV"
             echo "CPPFLAGS=" >> "$GITHUB_ENV"
             echo "LDFLAGS=" >> "$GITHUB_ENV"
-            echo "libslirp não detectado; slirp será desabilitado para não quebrar."
+            echo "libslirp NÃO detectado; slirp será desabilitado para não quebrar."
           fi
 
-      # 1) Detecta campos de qemuArena_t e exporta CFLAGS (-Daction=.. -Dtime=..)
-      - name: Detectar campos do qemuArena_t e setar CFLAGS
+      # ===== Arena (NOVA LÓGICA): não existe typedef? não tenta mapear; só aplica fallback se necessário =====
+      - name: Inspecionar arena (existe typedef? existem usos?)
+        id: inspect_arena
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          # 1) Procura por declaração/typedef da qemuArena (ou qemuArena_t)
+          ARENA_HDR="$(grep -RIl --include='*.h' -E 'typedef[[:space:]]+struct[[:space:]]+qemuArena|qemuArena_t' || true)"
+          if [ -n "${ARENA_HDR}" ]; then
+            echo "arena_has_typedef=true" >> "$GITHUB_OUTPUT"
+            echo "ARENA_HDR=${ARENA_HDR}" >> "$GITHUB_OUTPUT"
+          else
+            echo "arena_has_typedef=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # 2) Existem usos m_arena->... ?
+          if grep -RIl --include='*.c' -E 'm_arena->' hw system >/dev/null 2>&1; then
+            echo "arena_has_usages=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "arena_has_usages=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Mapear campos do qemuArena_t e setar CFLAGS (só se typedef existir)
+        if: steps.inspect_arena.outputs.arena_has_typedef == 'true'
         id: detect_arena
         shell: msys2 {0}
         continue-on-error: true
         run: |
           set -euo pipefail
-          ARENA_HDR="$(grep -RIl --include='*.h' 'typedef struct qemuArena' || true)"
-          if [ -z "${ARENA_HDR}" ]; then
-            ARENA_HDR="$(grep -RIl --include='*.h' 'qemuArena_t' || true)"
-          fi
-          if [ -z "${ARENA_HDR}" ]; then
-            echo "Falha: não achei header com qemuArena_t."
-            exit 2
-          fi
+          ARENA_HDR="${{ steps.inspect_arena.outputs.ARENA_HDR }}"
           echo "Header do qemuArena_t: ${ARENA_HDR}"
+
           awk '
             /typedef[[:space:]]+struct[[:space:]]+qemuArena/ {inblk=1; next}
             inblk && /};/ {inblk=0}
@@ -135,6 +151,7 @@ jobs:
               }
             }
           ' "${ARENA_HDR}" | sort -u > /tmp/_arena_fields.txt || true
+
           if [ ! -s /tmp/_arena_fields.txt ]; then
             printf '%s\n' op cmd event state action ts timestamp time_ns ticks tstamp time > /tmp/_arena_fields.txt
           fi
@@ -146,6 +163,7 @@ jobs:
             rm -f /tmp/_probe.c /tmp/_probe.o
             printf '#include <stdint.h>\n' > /tmp/_probe.c
             printf '#include "%s"\n' "${ARENA_HDR}" >> /tmp/_probe.c
+            printf 'typedef struct qemuArena qemuArena_t; /* garante alias */\n' >> /tmp/_probe.c
             printf 'int main(void){ volatile qemuArena_t *p=(volatile qemuArena_t*)0; (void)p->%s; (void)p->%s; return 0; }\n' "${A}" "${T}" >> /tmp/_probe.c
             gcc -m64 -c /tmp/_probe.c -o /tmp/_probe.o >/dev/null 2>&1
           }
@@ -168,9 +186,11 @@ jobs:
             exit 3
           fi
 
-      # 2) Fallback: neutraliza arena se detecção falhar
+      # Fallback SÓ quando: (a) não há typedef mas há usos, ou (b) tentativa de mapeamento falhou
       - name: Fallback - neutralizar arena em todos os fontes
-        if: steps.detect_arena.outcome == 'failure'
+        if: |
+          steps.inspect_arena.outputs.arena_has_usages == 'true' &&
+          (steps.inspect_arena.outputs.arena_has_typedef == 'false' || steps.detect_arena.outcome == 'failure')
         shell: msys2 {0}
         run: |
           set -euo pipefail
@@ -179,7 +199,7 @@ jobs:
             echo "Nenhum arquivo com m_arena->action/time encontrado. Nada a fazer."
             exit 0
           fi
-          printf 'Patchando:\n - %s\n' "${ARENA_FILES[@]}"
+          printf 'Patchando (fallback arena):\n - %s\n' "${ARENA_FILES[@]}"
           for FILE in "${ARENA_FILES[@]}"; do
             sed -i -E 's/while[[:space:]]*\([[:space:]]*m_arena->action[[:space:]]*\)/while(0) \/* shim: no wait *\//g' "${FILE}"
             sed -i -E 's/m_arena->action[[:space:]]*=[^;]*;/\/\* shim: drop arena action *\//g' "${FILE}"
@@ -187,7 +207,7 @@ jobs:
             sed -i -E 's/m_arena->time[[:space:]]*=[^;]*;/\/\* shim: drop arena time *\//g' "${FILE}"
           done
 
-      # 3) Shim STM32 UART
+      # Shim STM32 UART (inalterado)
       - name: Shim STM32 UART (weak stub em system/simuliface.c)
         shell: msys2 {0}
         run: |
@@ -211,7 +231,7 @@ jobs:
             echo "system/simuliface.c não referencia stm32_f103c8_uart_action; nada a fazer."
           fi
 
-      # Configure (igual README) + SLIRP_FLAG e com CPPFLAGS/LDFLAGS propagados
+      # Configure (SDL e Capstone reativados; SLIRP auto)
       - name: Configure (conforme README)
         shell: msys2 {0}
         env:
@@ -225,9 +245,11 @@ jobs:
           test -f ./configure
           ./configure --target-list=xtensa-softmmu --extra-cflags=-fPIC \
             ${SLIRP_FLAG} \
+            --enable-sdl \
+            --enable-capstone \
             --disable-attr --disable-auth-pam --disable-avx2 --disable-avx512bw \
             --disable-blkio --disable-bochs --disable-bpf --disable-brlapi \
-            --disable-bzip2 --disable-canokey --disable-cap-ng --disable-capstone \
+            --disable-bzip2 --disable-canokey --disable-cap-ng \
             --disable-cloop --disable-cocoa --disable-colo-proxy --disable-coreaudio \
             --disable-crypto-afalg --disable-curl --disable-curses --disable-dbus-display \
             --disable-dmg --disable-docs --disable-dsound --disable-fuse --disable-fuse-lseek \
@@ -243,20 +265,18 @@ jobs:
             --disable-numa --disable-nvmm --disable-opengl --disable-oss --disable-pa \
             --disable-parallels --disable-pipewire --disable-png --disable-qcow1 \
             --disable-qed --disable-qga-vss --disable-rbd --disable-rdma --disable-replication \
-            --disable-sdl --disable-sdl-image --disable-seccomp --disable-selinux \
+            --disable-sdl-image --disable-seccomp --disable-selinux \
             --disable-smartcard --disable-snappy --disable-sndio --disable-sparse \
             --disable-spice --disable-spice-protocol --disable-stack-protector \
-            --disable-tcg --disable-tools --disable-tpm --disable-u2f --disable-usb-redir \
+            --disable-tools --disable-tpm --disable-u2f --disable-usb-redir \
             --disable-vde --disable-vdi --disable-vhdx --disable-vhost-crypto \
             --disable-vhost-kernel --disable-vhost-net --disable-vhost-user --disable-vhost-vdpa \
             --disable-virglrenderer --disable-virtfs --disable-vmdk --disable-vmnet \
             --disable-vnc --disable-vnc-jpeg --disable-vnc-sasl --disable-vpc \
             --disable-vte --disable-vvfat --disable-whpx --disable-xen --disable-xkbcommon \
-            --disable-zstd --disable-system --disable-user --disable-linux-user --disable-bsd-user \
-            --disable-pie --disable-debug-tcg --disable-werror --disable-alsa --disable-debug-info \
-            --enable-tcg --enable-system --enable-gcrypt
+            --disable-zstd \
+            --enable-tcg --enable-system
 
-      # ======== BUILD COM LOGS APRIMORADOS ========
       - name: Build (ninja com captura de stdout/stderr)
         shell: msys2 {0}
         env:
@@ -281,7 +301,7 @@ jobs:
             exit "$RC"
           fi
 
-      - name: Preparar bundle (EXEs + DLLs) — robusto
+      - name: Preparar bundle (EXEs + DLLs)
         if: ${{ success() }}
         shell: msys2 {0}
         run: |
@@ -320,6 +340,8 @@ jobs:
             libglib-2.0-0.dll libgobject-2.0-0.dll libgmodule-2.0-0.dll libgthread-2.0-0.dll \
             libintl-8.dll libiconv-2.dll libpcre2-8-0.dll libpixman-1-0.dll \
             libgcrypt-20.dll zlib1.dll \
+            SDL2.dll \
+            libcapstone.dll \
           ; do
             [ -f "/mingw64/bin/$dll" ] && cp -n "/mingw64/bin/$dll" bundle/ || true
           done
@@ -341,7 +363,6 @@ jobs:
           path: ${{ env.ZIP_NAME }}
           if-no-files-found: error
 
-      # Tag/Release: robusto em detached HEAD
       - name: Criar e enviar tag (idempotente)
         if: ${{ success() }}
         shell: bash
