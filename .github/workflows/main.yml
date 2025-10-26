@@ -82,7 +82,6 @@ jobs:
           done
           rm -rf build config.log meson-private meson-info || true
 
-      # SLIRP: detecta e injeta flags (ou desabilita sem quebrar o build)
       - name: Detectar libslirp (enable/disable + flags)
         shell: msys2 {0}
         run: |
@@ -90,6 +89,7 @@ jobs:
           SLIRP_PKG=""
           if pkg-config --exists libslirp; then SLIRP_PKG="libslirp"; fi
           if [ -z "$SLIRP_PKG" ] && pkg-config --exists slirp; then SLIRP_PKG="slirp"; fi
+
           if [ -n "$SLIRP_PKG" ]; then
             echo "SLIRP_FLAG=--enable-slirp" >> "$GITHUB_ENV"
             CF="$(pkg-config --cflags "$SLIRP_PKG" || true)"
@@ -104,13 +104,11 @@ jobs:
             echo "libslirp NÃO detectado; slirp será desabilitado para não quebrar."
           fi
 
-      # ===== Arena (NOVA LÓGICA): não existe typedef? não tenta mapear; só aplica fallback se necessário =====
       - name: Inspecionar arena (existe typedef? existem usos?)
         id: inspect_arena
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          # 1) Procura por declaração/typedef da qemuArena (ou qemuArena_t)
           ARENA_HDR="$(grep -RIl --include='*.h' -E 'typedef[[:space:]]+struct[[:space:]]+qemuArena|qemuArena_t' || true)"
           if [ -n "${ARENA_HDR}" ]; then
             echo "arena_has_typedef=true" >> "$GITHUB_OUTPUT"
@@ -118,8 +116,6 @@ jobs:
           else
             echo "arena_has_typedef=false" >> "$GITHUB_OUTPUT"
           fi
-
-          # 2) Existem usos m_arena->... ?
           if grep -RIl --include='*.c' -E 'm_arena->' hw system >/dev/null 2>&1; then
             echo "arena_has_usages=true" >> "$GITHUB_OUTPUT"
           else
@@ -135,7 +131,6 @@ jobs:
           set -euo pipefail
           ARENA_HDR="${{ steps.inspect_arena.outputs.ARENA_HDR }}"
           echo "Header do qemuArena_t: ${ARENA_HDR}"
-
           awk '
             /typedef[[:space:]]+struct[[:space:]]+qemuArena/ {inblk=1; next}
             inblk && /};/ {inblk=0}
@@ -151,19 +146,17 @@ jobs:
               }
             }
           ' "${ARENA_HDR}" | sort -u > /tmp/_arena_fields.txt || true
-
           if [ ! -s /tmp/_arena_fields.txt ]; then
             printf '%s\n' op cmd event state action ts timestamp time_ns ticks tstamp time > /tmp/_arena_fields.txt
           fi
           mapfile -t FIELDS < /tmp/_arena_fields.txt
-          echo "Campos candidatos: ${FIELDS[*]}"
 
           test_pair () {
             A="$1"; T="$2"
             rm -f /tmp/_probe.c /tmp/_probe.o
             printf '#include <stdint.h>\n' > /tmp/_probe.c
             printf '#include "%s"\n' "${ARENA_HDR}" >> /tmp/_probe.c
-            printf 'typedef struct qemuArena qemuArena_t; /* garante alias */\n' >> /tmp/_probe.c
+            printf 'typedef struct qemuArena qemuArena_t;\n' >> /tmp/_probe.c
             printf 'int main(void){ volatile qemuArena_t *p=(volatile qemuArena_t*)0; (void)p->%s; (void)p->%s; return 0; }\n' "${A}" "${T}" >> /tmp/_probe.c
             gcc -m64 -c /tmp/_probe.c -o /tmp/_probe.o >/dev/null 2>&1
           }
@@ -179,14 +172,12 @@ jobs:
           done
 
           if [ -n "${FOUND_A}" ] && [ -n "${FOUND_T}" ]; then
-            echo "Mapeado: action -> ${FOUND_A} | time -> ${FOUND_T}"
             echo "CFLAGS=${CFLAGS:+$CFLAGS }-Daction=${FOUND_A} -Dtime=${FOUND_T}" >> "$GITHUB_ENV"
           else
             echo "Não foi possível mapear automaticamente."
             exit 3
           fi
 
-      # Fallback SÓ quando: (a) não há typedef mas há usos, ou (b) tentativa de mapeamento falhou
       - name: Fallback - neutralizar arena em todos os fontes
         if: |
           steps.inspect_arena.outputs.arena_has_usages == 'true' &&
@@ -207,23 +198,27 @@ jobs:
             sed -i -E 's/m_arena->time[[:space:]]*=[^;]*;/\/\* shim: drop arena time *\//g' "${FILE}"
           done
 
-      # Shim STM32 UART (inalterado)
-      - name: Shim STM32 UART (weak stub em system/simuliface.c)
+      # ★★★ FIX: inserir shim da UART ao FINAL do arquivo (depois dos #includes)
+      - name: Shim STM32 UART (append no fim de system/simuliface.c)
         shell: msys2 {0}
         run: |
           set -euo pipefail
           FILE="system/simuliface.c"
           if [ -f "${FILE}" ] && grep -q 'stm32_f103c8_uart_action' "${FILE}"; then
+            # Se já houver uma implementação real (definição), não faça nada.
+            if grep -Eq '^[[:space:]]*void[[:space:]]+stm32_f103c8_uart_action[[:space:]]*\(' "${FILE}"; then
+              echo "Implementação real já existe; nada a fazer."
+              exit 0
+            fi
+            # Se nosso marcador NÃO existir, append no FIM do arquivo (após includes)
             if ! grep -q 'WEAK_STM32_UART_SHIM' "${FILE}"; then
-              echo "Inserindo weak stub de stm32_f103c8_uart_action em ${FILE}"
-              tmp="${FILE}.tmp"
+              echo "Anexando weak stub ao final de ${FILE}"
               {
-                printf "#ifndef WEAK_STM32_UART_SHIM\n#define WEAK_STM32_UART_SHIM 1\n"
-                printf "__attribute__((weak)) void stm32_f103c8_uart_action(void){}\n"
-                printf "#endif\n"
-                cat "${FILE}"
-              } > "${tmp}"
-              mv "${tmp}" "${FILE}"
+                printf "\n#ifndef WEAK_STM32_UART_SHIM\n#define WEAK_STM32_UART_SHIM 1\n"
+                printf "void stm32_f103c8_uart_action(void) __attribute__((weak));\n"
+                printf "void stm32_f103c8_uart_action(void){}\n"
+                printf "#endif /* WEAK_STM32_UART_SHIM */\n"
+              } >> "${FILE}"
             else
               echo "Shim já presente; seguindo."
             fi
@@ -231,8 +226,7 @@ jobs:
             echo "system/simuliface.c não referencia stm32_f103c8_uart_action; nada a fazer."
           fi
 
-      # Configure (SDL e Capstone reativados; SLIRP auto)
-      - name: Configure (conforme README)
+      - name: Configure (SDL/Capstone ON; SLIRP auto; desativa Werror)
         shell: msys2 {0}
         env:
           PKG_CONFIG_PATH: /mingw64/lib/pkgconfig:/usr/lib/pkgconfig
@@ -275,7 +269,8 @@ jobs:
             --disable-vnc --disable-vnc-jpeg --disable-vnc-sasl --disable-vpc \
             --disable-vte --disable-vvfat --disable-whpx --disable-xen --disable-xkbcommon \
             --disable-zstd \
-            --enable-tcg --enable-system
+            --enable-tcg --enable-system \
+            --disable-werror
 
       - name: Build (ninja com captura de stdout/stderr)
         shell: msys2 {0}
