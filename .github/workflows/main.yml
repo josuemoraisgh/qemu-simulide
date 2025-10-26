@@ -56,8 +56,6 @@ jobs:
             mingw-w64-x86_64-libgcrypt
             mingw-w64-x86_64-zlib
             mingw-w64-x86_64-libslirp
-            mingw-w64-x86_64-SDL2
-            mingw-w64-x86_64-capstone
             mingw-w64-x86_64-ninja
             mingw-w64-x86_64-meson
             mingw-w64-x86_64-ntldd
@@ -82,7 +80,7 @@ jobs:
           done
           rm -rf build config.log meson-private meson-info || true
 
-      # SLIRP: detecta e injeta flags (ou desabilita sem quebrar o build)
+      # Detecta libslirp e injeta flags globais (CPPFLAGS/LDFLAGS) + SLIRP_FLAG p/ ./configure
       - name: Detectar libslirp (enable/disable + flags)
         shell: msys2 {0}
         run: |
@@ -96,153 +94,169 @@ jobs:
             LF="$(pkg-config --libs "$SLIRP_PKG" || true)"
             echo "CPPFLAGS=${CF}" >> "$GITHUB_ENV"
             echo "LDFLAGS=${LF}" >> "$GITHUB_ENV"
-            echo "libslirp detectado ($SLIRP_PKG)."
+            echo "libslirp detectado ($SLIRP_PKG). Flags: ${CF} | ${LF}"
           else
             echo "SLIRP_FLAG=--disable-slirp" >> "$GITHUB_ENV"
             echo "CPPFLAGS=" >> "$GITHUB_ENV"
             echo "LDFLAGS=" >> "$GITHUB_ENV"
-            echo "libslirp NÃO detectado; slirp será desabilitado."
+            echo "libslirp não detectado; slirp será desabilitado."
           fi
 
-      # ===== Arena: procurar de verdade (map OR fail; sem neutralização) =====
-      - name: Mapear arena (descobrir includes e campos a partir dos usos)
-        id: map_arena
+      # === Arena: mapear ou falhar (sem neutralizar) ===
+      - name: Mapear qemuArena_t (exportar -Daction/-Dtime)
+        id: detect_arena
         shell: msys2 {0}
         run: |
           set -euo pipefail
 
-          # 0) Existem usos de m_arena->...?
-          if ! grep -RIl --include='*.c' -E 'm_arena->[A-Za-z_][A-Za-z0-9_]*' hw system >/dev/null 2>&1; then
-            echo "arena_used=false" >> "$GITHUB_OUTPUT"
-            echo "Nenhum uso de m_arena->... encontrado; nada a mapear."
-            exit 0
-          fi
-          echo "arena_used=true" >> "$GITHUB_OUTPUT"
+          # 1) Coletar candidatos de campos por frequência nos .c (m_arena->X)
+          awk -v RS='\0' '
+            /m_arena->([A-Za-z_][A-Za-z0-9_]*)/ {
+              while (match($0, /m_arena->([A-Za-z_][A-Za-z0-9_]*)/, m)) {
+                f[m[1]]++
+                $0=substr($0, RSTART+RLENGTH)
+              }
+            }
+            END {
+              print "Campos por frequência:"
+              n=asorti(f, k, "@val_num_desc")
+              for (i=1; i<=n; i++) printf("%8d %s\n", f[k[i]], k[i])
+            }
+          ' <(printf "%s\0" $(git ls-files '*.c')) || true
 
-          # 1) Coletar campos usados no código (por frequência)
-          grep -RIn --include='*.c' -E 'm_arena->([A-Za-z_][A-Za-z0-9_]*)' hw system \
-            | sed -E 's/.*m_arena->([A-Za-z_][A-Za-z0-9_]*).*/\1/' \
-            | sort | uniq -c | sort -nr > /tmp/_arena_field_freq.txt || true
+          # Heurística de nomes preferidos
+          PREF_ACTION="action simuAction qemuAction op cmd event state"
+          PREF_TIME="time simuTime qemuTime ts timestamp time_ns ticks tstamp"
 
-          if [ ! -s /tmp/_arena_field_freq.txt ]; then
-            echo "::error::Há usos de m_arena, mas não consegui extrair campos."
-            exit 41
-          fi
-          echo "Campos por frequência:"
-          head -n 50 /tmp/_arena_field_freq.txt || true
-
-          # 2) Candidatos por heurística (action-likes e time-likes)
-          awk '{print $2}' /tmp/_arena_field_freq.txt > /tmp/_arena_fields_all.txt
-          grep -E '^(action|act|cmd|op|event|state)$' /tmp/_arena_fields_all.txt || true > /tmp/_arena_action_like.txt
-          grep -E '^(time|ts|tstamp|timestamp|time_ns|ticks)$' /tmp/_arena_fields_all.txt || true > /tmp/_arena_time_like.txt
-          # Se vazio, use os top-N gerais como fallback
-          if [ ! -s /tmp/_arena_action_like.txt ]; then head -n 8 /tmp/_arena_fields_all.txt > /tmp/_arena_action_like.txt; fi
-          if [ ! -s /tmp/_arena_time_like.txt ]; then head -n 8 /tmp/_arena_fields_all.txt > /tmp/_arena_time_like.txt; fi
-
-          # 3) Encontrar headers relevantes para declarar m_arena e a struct
-          #   - headers que mencionam m_arena
-          grep -RIl --include='*.h' -E '\bm_arena\b' . > /tmp/_arena_headers1.txt || true
-          #   - headers com struct qemuArena / typedef qemuArena_t
-          grep -RIl --include='*.h' -E 'struct[[:space:]]+qemuArena|typedef[[:space:]]+struct[[:space:]]+qemuArena|qemuArena_t' . > /tmp/_arena_headers2.txt || true
-          #   - alguns headers centrais (se existirem)
-          for h in system/simuliface.h include/simuliface.h include/qemu/osdep.h; do
-            [ -f "$h" ] && echo "$h" >> /tmp/_arena_headers2.txt || true
-          done
-          cat /tmp/_arena_headers1.txt /tmp/_arena_headers2.txt 2>/dev/null | awk 'NF' | sort -u > /tmp/_arena_headers.txt
-
-          if [ ! -s /tmp/_arena_headers.txt ]; then
-            echo "::error::Não achei nenhum header que declare m_arena/struct qemuArena."
-            exit 42
-          fi
-
-          echo "Headers candidatos a incluir no probe:"
-          cat /tmp/_arena_headers.txt | sed 's/^/  - /'
-
-          # 4) Função para testar um par (A=action-like, T=time-like)
-          test_pair () {
-            A="$1"; T="$2"
-            PROBE=/tmp/_probe.c
-            OBJ=/tmp/_probe.o
-            rm -f "${PROBE}" "${OBJ}"
-
-            {
-              printf '#include <stdint.h>\n'
-              # incluir todos os headers candidatos
-              while IFS= read -r h; do
-                printf '#include "%s"\n' "$h"
-              done < /tmp/_arena_headers.txt
-              # Garantir o alias se só existir 'struct qemuArena'
-              printf '#ifndef qemuArena_t\n'
-              printf 'typedef struct qemuArena qemuArena_t;\n'
-              printf '#endif\n'
-              # Se não houver declaração visível de m_arena, declarar extern (não conflita)
-              printf 'extern volatile qemuArena_t *m_arena;\n'
-              # tocar nos campos
-              printf 'int main(void){ (void)m_arena->%s; (void)m_arena->%s; return 0; }\n' "$A" "$T"
-            } > "${PROBE}"
-
-            gcc -m64 -c "${PROBE}" -o "${OBJ}" >/dev/null 2>&1
-          }
-
-          FOUND_A=""; FOUND_T=""
-          while IFS= read -r A; do
-            [ -z "$A" ] && continue
-            while IFS= read -r T; do
-              [ -z "$T" ] && continue
-              [ "$A" = "$T" ] && continue
-              if test_pair "$A" "$T"; then
-                FOUND_A="$A"; FOUND_T="$T"; break 2
-              fi
-            done < /tmp/_arena_time_like.txt
-          done < /tmp/_arena_action_like.txt
-
-          if [ -z "${FOUND_A}" ] || [ -z "${FOUND_T}" ]; then
-            echo "::group::Diagnóstico arena"
-            echo "Headers testados:"
-            cat /tmp/_arena_headers.txt | sed 's/^/  - /'
-            echo "Top campos action-like:"
-            cat /tmp/_arena_action_like.txt | sed 's/^/  - /'
-            echo "Top campos time-like:"
-            cat /tmp/_arena_time_like.txt | sed 's/^/  - /'
-            echo "::endgroup::"
-            echo "::error::Falha ao mapear automaticamente os campos de arena (action/time)."
-            echo "::error::Ajuste os headers ou os nomes dos campos; o build não será neutralizado."
+          # 2) Tentar achar header do typedef qemuArena_t
+          ARENA_HDR="$(grep -RIl --include='*.h' -E 'typedef[[:space:]]+struct[[:space:]]+qemuArena|qemuArena_t' || true)"
+          if [ -z "${ARENA_HDR}" ]; then
+            echo "Error: não encontrei header com typedef de qemuArena_t."
             exit 43
           fi
 
-          echo "Mapeado: action -> ${FOUND_A} | time -> ${FOUND_T}"
-          echo "CFLAGS=${CFLAGS:+$CFLAGS }-Daction=${FOUND_A} -Dtime=${FOUND_T}" >> "$GITHUB_ENV"
-          echo "arena_mapped=true" >> "$GITHUB_OUTPUT"
+          # 3) Extrair possíveis campos a partir do typedef
+          TMP_FIELDS="$(mktemp)"
+          : > "${TMP_FIELDS}"
+          while IFS= read -r H; do
+            awk '
+              /typedef[[:space:]]+struct[[:space:]]+qemuArena/ {inblk=1}
+              inblk && /};/ {inblk=0}
+              inblk {
+                line=$0
+                sub(/\/\/.*/,"",line)
+                gsub(/\/\*([^*]|\*+[^*\/])*\*\//,"",line)
+                if (line ~ /;/) {
+                  sub(/.*[[:space:]\*]([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*;.*/,"\\1",line)
+                  if (line ~ /^[A-Za-z_][A-Za-z0-9_]*$/) print line
+                }
+              }
+            ' "$H" || true
+          done <<< "${ARENA_HDR}" | sort -u > "${TMP_FIELDS}"
 
-      # UART shim — appendar no fim de system/simuliface.c
-      - name: Shim STM32 UART (append no fim de system/simuliface.c)
+          if [ ! -s "${TMP_FIELDS}" ]; then
+            echo "Error: typedef de qemuArena_t encontrado, mas não extraí campos."
+            exit 43
+          fi
+
+          mapfile -t FIELDS < "${TMP_FIELDS}"
+
+          # 4) Gerar lista de headers a incluir no probe
+          CAND_HDRS=(
+            "system/simuliface.h"
+            "./system/simuliface.h"
+            "include/qemu/osdep.h"
+            "./include/qemu/osdep.h"
+          )
+
+          # 5) Função para tentar compilar um probe incluindo combinações de headers
+          try_probe() {
+            local A="$1" T="$2"
+            for h1 in "${CAND_HDRS[@]}"; do
+              for h2 in "" "${CAND_HDRS[@]}"; do
+                cat > /tmp/_probe.c <<EOF
+#include <stdint.h>
+#ifdef __has_include
+# if __has_include("$h1")
+#  include "$h1"
+# endif
+# if __has_include("$h2")
+#  include "$h2"
+# endif
+#endif
+int main(void){ volatile qemuArena_t *p=(volatile qemuArena_t*)0; (void)p->$A; (void)p->$T; return 0; }
+EOF
+                if gcc -m64 -c /tmp/_probe.c -o /tmp/_probe.o >/dev/null 2>&1; then
+                  echo "OK com headers: $h1 $h2"
+                  return 0
+                fi
+              done
+            done
+            return 1
+          }
+
+          FOUND_A=""
+          FOUND_T=""
+
+          # Preferidos primeiro
+          for a in $PREF_ACTION; do
+            for t in $PREF_TIME; do
+              if printf '%s\n' "${FIELDS[@]}" | grep -qx "$a" && printf '%s\n' "${FIELDS[@]}" | grep -qx "$t"; then
+                if try_probe "$a" "$t"; then FOUND_A="$a"; FOUND_T="$t"; break 2; fi
+              fi
+            done
+          done
+
+          # Se não deu, brute-force com todos campos
+          if [ -z "$FOUND_A" ]; then
+            for a in "${FIELDS[@]}"; do
+              for t in "${FIELDS[@]}"; do
+                [ "$a" = "$t" ] && continue
+                if try_probe "$a" "$t"; then FOUND_A="$a"; FOUND_T="$t"; break 2; fi
+              done
+            done
+          fi
+
+          if [ -n "$FOUND_A" ] && [ -n "$FOUND_T" ]; then
+            echo "CFLAGS=${CFLAGS:+$CFLAGS }-Daction=${FOUND_A} -Dtime=${FOUND_T}" >> "$GITHUB_ENV"
+            echo "Mapeado: action=${FOUND_A} time=${FOUND_T}"
+          else
+            echo "Error: Falha ao mapear automaticamente os campos de arena (action/time)."
+            echo "Error: Ajuste os headers ou os nomes dos campos; o build não será neutralizado."
+            exit 43
+          fi
+
+      # === Shim STM32 UART: inserir DEFINIÇÃO fraca após includes, somente se necessário ===
+      - name: Shim STM32 UART (weak stub pós-includes)
         shell: msys2 {0}
         run: |
           set -euo pipefail
           FILE="system/simuliface.c"
-          if [ -f "${FILE}" ] && grep -q 'stm32_f103c8_uart_action' "${FILE}"; then
-            # Se já houver implementação real, nada a fazer
-            if grep -Eq '^[[:space:]]*void[[:space:]]+stm32_f103c8_uart_action[[:space:]]*\(' "${FILE}"; then
-              echo "Implementação real já existe; nada a fazer."
+          # Só se o arquivo existe E referencia o símbolo
+          if [ -f "$FILE" ] && grep -q '\bstm32_f103c8_uart_action\b' "$FILE"; then
+            # Se já houver uma definição em qualquer .c, não insere
+            if grep -RIl --include='*.c' -E '^[[:space:]]*void[[:space:]]+stm32_f103c8_uart_action[[:space:]]*\(' . >/dev/null 2>&1; then
+              echo "Definição existente de stm32_f103c8_uart_action encontrada; não inserir shim."
               exit 0
             fi
-            # Se nosso marcador não existir, append no FIM
-            if ! grep -q 'WEAK_STM32_UART_SHIM' "${FILE}"; then
-              echo "Anexando weak stub ao final de ${FILE}"
-              {
-                printf "\n#ifndef WEAK_STM32_UART_SHIM\n#define WEAK_STM32_UART_SHIM 1\n"
-                printf "void stm32_f103c8_uart_action(void) __attribute__((weak));\n"
-                printf "void stm32_f103c8_uart_action(void){}\n"
-                printf "#endif /* WEAK_STM32_UART_SHIM */\n"
-              } >> "${FILE}"
-            else
+            # Evitar duplicidade
+            if grep -q 'WEAK_STM32_UART_SHIM' "$FILE"; then
               echo "Shim já presente; seguindo."
+              exit 0
             fi
+            # Inserir APÓS o último #include para evitar -Wmissing-prototypes / -Wredundant-decls
+            LAST_INC="$(grep -n '^[[:space:]]*#include' "$FILE" | tail -n1 | cut -d: -f1 || true)"
+            if [ -z "$LAST_INC" ]; then LAST_INC=0; fi
+            awk -v insline="$LAST_INC" '
+              NR==insline { print; print "#ifndef WEAK_STM32_UART_SHIM"; print "#define WEAK_STM32_UART_SHIM 1"; print "__attribute__((weak)) void stm32_f103c8_uart_action(void){}"; print "#endif"; next }
+              { print }
+            ' "$FILE" > "${FILE}.tmp"
+            mv "${FILE}.tmp" "$FILE"
+            echo "Shim fraco inserido após includes em $FILE"
           else
             echo "system/simuliface.c não referencia stm32_f103c8_uart_action; nada a fazer."
           fi
 
-      # Configure (SDL/Capstone ON; SLIRP auto; desativa Werror)
       - name: Configure (conforme README)
         shell: msys2 {0}
         env:
@@ -256,11 +270,9 @@ jobs:
           test -f ./configure
           ./configure --target-list=xtensa-softmmu --extra-cflags=-fPIC \
             ${SLIRP_FLAG} \
-            --enable-sdl \
-            --enable-capstone \
             --disable-attr --disable-auth-pam --disable-avx2 --disable-avx512bw \
             --disable-blkio --disable-bochs --disable-bpf --disable-brlapi \
-            --disable-bzip2 --disable-canokey --disable-cap-ng \
+            --disable-bzip2 --disable-canokey --disable-cap-ng --disable-capstone \
             --disable-cloop --disable-cocoa --disable-colo-proxy --disable-coreaudio \
             --disable-crypto-afalg --disable-curl --disable-curses --disable-dbus-display \
             --disable-dmg --disable-docs --disable-dsound --disable-fuse --disable-fuse-lseek \
@@ -276,18 +288,18 @@ jobs:
             --disable-numa --disable-nvmm --disable-opengl --disable-oss --disable-pa \
             --disable-parallels --disable-pipewire --disable-png --disable-qcow1 \
             --disable-qed --disable-qga-vss --disable-rbd --disable-rdma --disable-replication \
-            --disable-sdl-image --disable-seccomp --disable-selinux \
+            --disable-sdl --disable-sdl-image --disable-seccomp --disable-selinux \
             --disable-smartcard --disable-snappy --disable-sndio --disable-sparse \
             --disable-spice --disable-spice-protocol --disable-stack-protector \
-            --disable-tools --disable-tpm --disable-u2f --disable-usb-redir \
+            --disable-tcg --disable-tools --disable-tpm --disable-u2f --disable-usb-redir \
             --disable-vde --disable-vdi --disable-vhdx --disable-vhost-crypto \
             --disable-vhost-kernel --disable-vhost-net --disable-vhost-user --disable-vhost-vdpa \
             --disable-virglrenderer --disable-virtfs --disable-vmdk --disable-vmnet \
             --disable-vnc --disable-vnc-jpeg --disable-vnc-sasl --disable-vpc \
             --disable-vte --disable-vvfat --disable-whpx --disable-xen --disable-xkbcommon \
-            --disable-zstd \
-            --enable-tcg --enable-system \
-            --disable-werror
+            --disable-zstd --disable-system --disable-user --disable-linux-user --disable-bsd-user \
+            --disable-pie --disable-debug-tcg --disable-werror --disable-alsa --disable-debug-info \
+            --enable-tcg --enable-system --enable-gcrypt
 
       - name: Build (ninja com captura de stdout/stderr)
         shell: msys2 {0}
@@ -313,7 +325,7 @@ jobs:
             exit "$RC"
           fi
 
-      - name: Preparar bundle (EXEs + DLLs)
+      - name: Preparar bundle (EXEs + DLLs) — robusto
         if: ${{ success() }}
         shell: msys2 {0}
         run: |
@@ -352,8 +364,6 @@ jobs:
             libglib-2.0-0.dll libgobject-2.0-0.dll libgmodule-2.0-0.dll libgthread-2.0-0.dll \
             libintl-8.dll libiconv-2.dll libpcre2-8-0.dll libpixman-1-0.dll \
             libgcrypt-20.dll zlib1.dll \
-            SDL2.dll \
-            libcapstone.dll \
           ; do
             [ -f "/mingw64/bin/$dll" ] && cp -n "/mingw64/bin/$dll" bundle/ || true
           done
