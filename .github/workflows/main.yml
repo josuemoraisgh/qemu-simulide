@@ -82,6 +82,7 @@ jobs:
           done
           rm -rf build config.log meson-private meson-info || true
 
+      # SLIRP: detecta e injeta flags (ou desabilita sem quebrar o build)
       - name: Detectar libslirp (enable/disable + flags)
         shell: msys2 {0}
         run: |
@@ -89,7 +90,6 @@ jobs:
           SLIRP_PKG=""
           if pkg-config --exists libslirp; then SLIRP_PKG="libslirp"; fi
           if [ -z "$SLIRP_PKG" ] && pkg-config --exists slirp; then SLIRP_PKG="slirp"; fi
-
           if [ -n "$SLIRP_PKG" ]; then
             echo "SLIRP_FLAG=--enable-slirp" >> "$GITHUB_ENV"
             CF="$(pkg-config --cflags "$SLIRP_PKG" || true)"
@@ -101,14 +101,16 @@ jobs:
             echo "SLIRP_FLAG=--disable-slirp" >> "$GITHUB_ENV"
             echo "CPPFLAGS=" >> "$GITHUB_ENV"
             echo "LDFLAGS=" >> "$GITHUB_ENV"
-            echo "libslirp NÃO detectado; slirp será desabilitado para não quebrar."
+            echo "libslirp NÃO detectado; slirp será desabilitado."
           fi
 
-      - name: Inspecionar arena (existe typedef? existem usos?)
+      # ===== Arena: modo MAP-OR-FAIL =====
+      - name: Inspecionar arena (typedef e usos)
         id: inspect_arena
         shell: msys2 {0}
         run: |
           set -euo pipefail
+          # Procura por typedef/declaração da qemuArena/qemuArena_t
           ARENA_HDR="$(grep -RIl --include='*.h' -E 'typedef[[:space:]]+struct[[:space:]]+qemuArena|qemuArena_t' || true)"
           if [ -n "${ARENA_HDR}" ]; then
             echo "arena_has_typedef=true" >> "$GITHUB_OUTPUT"
@@ -116,21 +118,29 @@ jobs:
           else
             echo "arena_has_typedef=false" >> "$GITHUB_OUTPUT"
           fi
+          # Existem usos m_arena->... ?
           if grep -RIl --include='*.c' -E 'm_arena->' hw system >/dev/null 2>&1; then
             echo "arena_has_usages=true" >> "$GITHUB_OUTPUT"
           else
             echo "arena_has_usages=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Mapear campos do qemuArena_t e setar CFLAGS (só se typedef existir)
-        if: steps.inspect_arena.outputs.arena_has_typedef == 'true'
+      - name: Mapear campos do qemuArena_t e setar CFLAGS (falha se não conseguir)
+        if: steps.inspect_arena.outputs.arena_has_usages == 'true'
         id: detect_arena
         shell: msys2 {0}
-        continue-on-error: true
         run: |
           set -euo pipefail
+          if [ "${{ steps.inspect_arena.outputs.arena_has_typedef }}" != "true" ]; then
+            echo "::error::Encontrados usos de m_arena->..., mas nenhum typedef/declaração de qemuArena/qemuArena_t foi localizado."
+            echo "::error::Corrija a árvore do código OU remova os usos de m_arena antes de compilar."
+            exit 41
+          fi
+
           ARENA_HDR="${{ steps.inspect_arena.outputs.ARENA_HDR }}"
           echo "Header do qemuArena_t: ${ARENA_HDR}"
+
+          # Lista de possíveis campos; extrai do header se possível
           awk '
             /typedef[[:space:]]+struct[[:space:]]+qemuArena/ {inblk=1; next}
             inblk && /};/ {inblk=0}
@@ -150,7 +160,9 @@ jobs:
             printf '%s\n' op cmd event state action ts timestamp time_ns ticks tstamp time > /tmp/_arena_fields.txt
           fi
           mapfile -t FIELDS < /tmp/_arena_fields.txt
+          echo "Campos candidatos: ${FIELDS[*]}"
 
+          # Testa pares (A=action, T=time) compilando um probe
           test_pair () {
             A="$1"; T="$2"
             rm -f /tmp/_probe.c /tmp/_probe.o
@@ -171,46 +183,28 @@ jobs:
             done
           done
 
-          if [ -n "${FOUND_A}" ] && [ -n "${FOUND_T}" ]; then
-            echo "CFLAGS=${CFLAGS:+$CFLAGS }-Daction=${FOUND_A} -Dtime=${FOUND_T}" >> "$GITHUB_ENV"
-          else
-            echo "Não foi possível mapear automaticamente."
-            exit 3
+          if [ -z "${FOUND_A}" ] || [ -z "${FOUND_T}" ]; then
+            echo "::error::Não foi possível mapear automaticamente os campos de arena (action/time)."
+            echo "::error::Verifique o header: ${ARENA_HDR} e os usos de m_arena->... em hw/ e system/."
+            exit 42
           fi
 
-      - name: Fallback - neutralizar arena em todos os fontes
-        if: |
-          steps.inspect_arena.outputs.arena_has_usages == 'true' &&
-          (steps.inspect_arena.outputs.arena_has_typedef == 'false' || steps.detect_arena.outcome == 'failure')
-        shell: msys2 {0}
-        run: |
-          set -euo pipefail
-          mapfile -t ARENA_FILES < <(grep -REIl --include='*.c' 'm_arena->(action|time)' hw system || true)
-          if [ "${#ARENA_FILES[@]}" -eq 0 ]; then
-            echo "Nenhum arquivo com m_arena->action/time encontrado. Nada a fazer."
-            exit 0
-          fi
-          printf 'Patchando (fallback arena):\n - %s\n' "${ARENA_FILES[@]}"
-          for FILE in "${ARENA_FILES[@]}"; do
-            sed -i -E 's/while[[:space:]]*\([[:space:]]*m_arena->action[[:space:]]*\)/while(0) \/* shim: no wait *\//g' "${FILE}"
-            sed -i -E 's/m_arena->action[[:space:]]*=[^;]*;/\/\* shim: drop arena action *\//g' "${FILE}"
-            sed -i -E 's/m_arena->time[[:space:]]*=[[:space:]]*qemuTime[[:space:]]*;/\(void\)qemuTime; \/* shim *\//g' "${FILE}"
-            sed -i -E 's/m_arena->time[[:space:]]*=[^;]*;/\/\* shim: drop arena time *\//g' "${FILE}"
-          done
+          echo "Mapeado: action -> ${FOUND_A} | time -> ${FOUND_T}"
+          echo "CFLAGS=${CFLAGS:+$CFLAGS }-Daction=${FOUND_A} -Dtime=${FOUND_T}" >> "$GITHUB_ENV"
 
-      # ★★★ FIX: inserir shim da UART ao FINAL do arquivo (depois dos #includes)
+      # UART shim — appendar no fim do arquivo para evitar -Werror de protótipos
       - name: Shim STM32 UART (append no fim de system/simuliface.c)
         shell: msys2 {0}
         run: |
           set -euo pipefail
           FILE="system/simuliface.c"
           if [ -f "${FILE}" ] && grep -q 'stm32_f103c8_uart_action' "${FILE}"; then
-            # Se já houver uma implementação real (definição), não faça nada.
+            # Se já houver implementação real, nada a fazer
             if grep -Eq '^[[:space:]]*void[[:space:]]+stm32_f103c8_uart_action[[:space:]]*\(' "${FILE}"; then
               echo "Implementação real já existe; nada a fazer."
               exit 0
             fi
-            # Se nosso marcador NÃO existir, append no FIM do arquivo (após includes)
+            # Se nosso marcador não existir, append no FIM (depois dos includes)
             if ! grep -q 'WEAK_STM32_UART_SHIM' "${FILE}"; then
               echo "Anexando weak stub ao final de ${FILE}"
               {
@@ -226,7 +220,8 @@ jobs:
             echo "system/simuliface.c não referencia stm32_f103c8_uart_action; nada a fazer."
           fi
 
-      - name: Configure (SDL/Capstone ON; SLIRP auto; desativa Werror)
+      # Configure (SDL/Capstone ON; SLIRP auto; desativa Werror)
+      - name: Configure (conforme README)
         shell: msys2 {0}
         env:
           PKG_CONFIG_PATH: /mingw64/lib/pkgconfig:/usr/lib/pkgconfig
@@ -272,6 +267,7 @@ jobs:
             --enable-tcg --enable-system \
             --disable-werror
 
+      # ===== BUILD =====
       - name: Build (ninja com captura de stdout/stderr)
         shell: msys2 {0}
         env:
@@ -296,6 +292,7 @@ jobs:
             exit "$RC"
           fi
 
+      # ===== BUNDLE =====
       - name: Preparar bundle (EXEs + DLLs)
         if: ${{ success() }}
         shell: msys2 {0}
@@ -358,6 +355,7 @@ jobs:
           path: ${{ env.ZIP_NAME }}
           if-no-files-found: error
 
+      # ===== TAG & RELEASE =====
       - name: Criar e enviar tag (idempotente)
         if: ${{ success() }}
         shell: bash
@@ -395,6 +393,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # ===== LOGS =====
       - name: Mostrar logs em caso de falha (ninja/meson)
         if: ${{ failure() }}
         shell: msys2 {0}
