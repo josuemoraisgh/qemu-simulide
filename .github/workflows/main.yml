@@ -104,95 +104,117 @@ jobs:
             echo "libslirp NÃO detectado; slirp será desabilitado."
           fi
 
-      # ===== Arena: modo MAP-OR-FAIL =====
-      - name: Inspecionar arena (typedef e usos)
-        id: inspect_arena
+      # ===== Arena: procurar de verdade (map OR fail; sem neutralização) =====
+      - name: Mapear arena (descobrir includes e campos a partir dos usos)
+        id: map_arena
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          # Procura por typedef/declaração da qemuArena/qemuArena_t
-          ARENA_HDR="$(grep -RIl --include='*.h' -E 'typedef[[:space:]]+struct[[:space:]]+qemuArena|qemuArena_t' || true)"
-          if [ -n "${ARENA_HDR}" ]; then
-            echo "arena_has_typedef=true" >> "$GITHUB_OUTPUT"
-            echo "ARENA_HDR=${ARENA_HDR}" >> "$GITHUB_OUTPUT"
-          else
-            echo "arena_has_typedef=false" >> "$GITHUB_OUTPUT"
-          fi
-          # Existem usos m_arena->... ?
-          if grep -RIl --include='*.c' -E 'm_arena->' hw system >/dev/null 2>&1; then
-            echo "arena_has_usages=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "arena_has_usages=false" >> "$GITHUB_OUTPUT"
-          fi
 
-      - name: Mapear campos do qemuArena_t e setar CFLAGS (falha se não conseguir)
-        if: steps.inspect_arena.outputs.arena_has_usages == 'true'
-        id: detect_arena
-        shell: msys2 {0}
-        run: |
-          set -euo pipefail
-          if [ "${{ steps.inspect_arena.outputs.arena_has_typedef }}" != "true" ]; then
-            echo "::error::Encontrados usos de m_arena->..., mas nenhum typedef/declaração de qemuArena/qemuArena_t foi localizado."
-            echo "::error::Corrija a árvore do código OU remova os usos de m_arena antes de compilar."
+          # 0) Existem usos de m_arena->...?
+          if ! grep -RIl --include='*.c' -E 'm_arena->[A-Za-z_][A-Za-z0-9_]*' hw system >/dev/null 2>&1; then
+            echo "arena_used=false" >> "$GITHUB_OUTPUT"
+            echo "Nenhum uso de m_arena->... encontrado; nada a mapear."
+            exit 0
+          fi
+          echo "arena_used=true" >> "$GITHUB_OUTPUT"
+
+          # 1) Coletar campos usados no código (por frequência)
+          grep -RIn --include='*.c' -E 'm_arena->([A-Za-z_][A-Za-z0-9_]*)' hw system \
+            | sed -E 's/.*m_arena->([A-Za-z_][A-Za-z0-9_]*).*/\1/' \
+            | sort | uniq -c | sort -nr > /tmp/_arena_field_freq.txt || true
+
+          if [ ! -s /tmp/_arena_field_freq.txt ]; then
+            echo "::error::Há usos de m_arena, mas não consegui extrair campos."
             exit 41
           fi
+          echo "Campos por frequência:"
+          head -n 50 /tmp/_arena_field_freq.txt || true
 
-          ARENA_HDR="${{ steps.inspect_arena.outputs.ARENA_HDR }}"
-          echo "Header do qemuArena_t: ${ARENA_HDR}"
+          # 2) Candidatos por heurística (action-likes e time-likes)
+          awk '{print $2}' /tmp/_arena_field_freq.txt > /tmp/_arena_fields_all.txt
+          grep -E '^(action|act|cmd|op|event|state)$' /tmp/_arena_fields_all.txt || true > /tmp/_arena_action_like.txt
+          grep -E '^(time|ts|tstamp|timestamp|time_ns|ticks)$' /tmp/_arena_fields_all.txt || true > /tmp/_arena_time_like.txt
+          # Se vazio, use os top-N gerais como fallback
+          if [ ! -s /tmp/_arena_action_like.txt ]; then head -n 8 /tmp/_arena_fields_all.txt > /tmp/_arena_action_like.txt; fi
+          if [ ! -s /tmp/_arena_time_like.txt ]; then head -n 8 /tmp/_arena_fields_all.txt > /tmp/_arena_time_like.txt; fi
 
-          # Lista de possíveis campos; extrai do header se possível
-          awk '
-            /typedef[[:space:]]+struct[[:space:]]+qemuArena/ {inblk=1; next}
-            inblk && /};/ {inblk=0}
-            inblk {
-              line=$0
-              sub(/\/\/.*/,"",line)
-              gsub(/\/\*([^*]|\*+[^*\/])*\*\//,"",line)
-              if (line ~ /^[[:space:]]*$/) next
-              if (line ~ /^[[:space:]]*{/ ) next
-              if (line ~ /;/) {
-                sub(/.*[[:space:]\*]([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*;.*/,"\\1",line)
-                if (line ~ /^[A-Za-z_][A-Za-z0-9_]*$/) print line
-              }
-            }
-          ' "${ARENA_HDR}" | sort -u > /tmp/_arena_fields.txt || true
-          if [ ! -s /tmp/_arena_fields.txt ]; then
-            printf '%s\n' op cmd event state action ts timestamp time_ns ticks tstamp time > /tmp/_arena_fields.txt
+          # 3) Encontrar headers relevantes para declarar m_arena e a struct
+          #   - headers que mencionam m_arena
+          grep -RIl --include='*.h' -E '\bm_arena\b' . > /tmp/_arena_headers1.txt || true
+          #   - headers com struct qemuArena / typedef qemuArena_t
+          grep -RIl --include='*.h' -E 'struct[[:space:]]+qemuArena|typedef[[:space:]]+struct[[:space:]]+qemuArena|qemuArena_t' . > /tmp/_arena_headers2.txt || true
+          #   - alguns headers centrais (se existirem)
+          for h in system/simuliface.h include/simuliface.h include/qemu/osdep.h; do
+            [ -f "$h" ] && echo "$h" >> /tmp/_arena_headers2.txt || true
+          done
+          cat /tmp/_arena_headers1.txt /tmp/_arena_headers2.txt 2>/dev/null | awk 'NF' | sort -u > /tmp/_arena_headers.txt
+
+          if [ ! -s /tmp/_arena_headers.txt ]; then
+            echo "::error::Não achei nenhum header que declare m_arena/struct qemuArena."
+            exit 42
           fi
-          mapfile -t FIELDS < /tmp/_arena_fields.txt
-          echo "Campos candidatos: ${FIELDS[*]}"
 
-          # Testa pares (A=action, T=time) compilando um probe
+          echo "Headers candidatos a incluir no probe:"
+          cat /tmp/_arena_headers.txt | sed 's/^/  - /'
+
+          # 4) Função para testar um par (A=action-like, T=time-like)
           test_pair () {
             A="$1"; T="$2"
-            rm -f /tmp/_probe.c /tmp/_probe.o
-            printf '#include <stdint.h>\n' > /tmp/_probe.c
-            printf '#include "%s"\n' "${ARENA_HDR}" >> /tmp/_probe.c
-            printf 'typedef struct qemuArena qemuArena_t;\n' >> /tmp/_probe.c
-            printf 'int main(void){ volatile qemuArena_t *p=(volatile qemuArena_t*)0; (void)p->%s; (void)p->%s; return 0; }\n' "${A}" "${T}" >> /tmp/_probe.c
-            gcc -m64 -c /tmp/_probe.c -o /tmp/_probe.o >/dev/null 2>&1
+            PROBE=/tmp/_probe.c
+            OBJ=/tmp/_probe.o
+            rm -f "${PROBE}" "${OBJ}"
+
+            {
+              printf '#include <stdint.h>\n'
+              # incluir todos os headers candidatos
+              while IFS= read -r h; do
+                printf '#include "%s"\n' "$h"
+              done < /tmp/_arena_headers.txt
+              # Garantir o alias se só existir 'struct qemuArena'
+              printf '#ifndef qemuArena_t\n'
+              printf 'typedef struct qemuArena qemuArena_t;\n'
+              printf '#endif\n'
+              # Se não houver declaração visível de m_arena, declarar extern (não conflita)
+              printf 'extern volatile qemuArena_t *m_arena;\n'
+              # tocar nos campos
+              printf 'int main(void){ (void)m_arena->%s; (void)m_arena->%s; return 0; }\n' "$A" "$T"
+            } > "${PROBE}"
+
+            gcc -m64 -c "${PROBE}" -o "${OBJ}" >/dev/null 2>&1
           }
 
           FOUND_A=""; FOUND_T=""
-          for A in "${FIELDS[@]}"; do
-            for T in "${FIELDS[@]}"; do
-              [ "${A}" = "${T}" ] && continue
-              if test_pair "${A}" "${T}"; then
-                FOUND_A="${A}"; FOUND_T="${T}"; break 2
+          while IFS= read -r A; do
+            [ -z "$A" ] && continue
+            while IFS= read -r T; do
+              [ -z "$T" ] && continue
+              [ "$A" = "$T" ] && continue
+              if test_pair "$A" "$T"; then
+                FOUND_A="$A"; FOUND_T="$T"; break 2
               fi
-            done
-          done
+            done < /tmp/_arena_time_like.txt
+          done < /tmp/_arena_action_like.txt
 
           if [ -z "${FOUND_A}" ] || [ -z "${FOUND_T}" ]; then
-            echo "::error::Não foi possível mapear automaticamente os campos de arena (action/time)."
-            echo "::error::Verifique o header: ${ARENA_HDR} e os usos de m_arena->... em hw/ e system/."
-            exit 42
+            echo "::group::Diagnóstico arena"
+            echo "Headers testados:"
+            cat /tmp/_arena_headers.txt | sed 's/^/  - /'
+            echo "Top campos action-like:"
+            cat /tmp/_arena_action_like.txt | sed 's/^/  - /'
+            echo "Top campos time-like:"
+            cat /tmp/_arena_time_like.txt | sed 's/^/  - /'
+            echo "::endgroup::"
+            echo "::error::Falha ao mapear automaticamente os campos de arena (action/time)."
+            echo "::error::Ajuste os headers ou os nomes dos campos; o build não será neutralizado."
+            exit 43
           fi
 
           echo "Mapeado: action -> ${FOUND_A} | time -> ${FOUND_T}"
           echo "CFLAGS=${CFLAGS:+$CFLAGS }-Daction=${FOUND_A} -Dtime=${FOUND_T}" >> "$GITHUB_ENV"
+          echo "arena_mapped=true" >> "$GITHUB_OUTPUT"
 
-      # UART shim — appendar no fim do arquivo para evitar -Werror de protótipos
+      # UART shim — appendar no fim de system/simuliface.c
       - name: Shim STM32 UART (append no fim de system/simuliface.c)
         shell: msys2 {0}
         run: |
@@ -204,7 +226,7 @@ jobs:
               echo "Implementação real já existe; nada a fazer."
               exit 0
             fi
-            # Se nosso marcador não existir, append no FIM (depois dos includes)
+            # Se nosso marcador não existir, append no FIM
             if ! grep -q 'WEAK_STM32_UART_SHIM' "${FILE}"; then
               echo "Anexando weak stub ao final de ${FILE}"
               {
@@ -267,7 +289,6 @@ jobs:
             --enable-tcg --enable-system \
             --disable-werror
 
-      # ===== BUILD =====
       - name: Build (ninja com captura de stdout/stderr)
         shell: msys2 {0}
         env:
@@ -292,7 +313,6 @@ jobs:
             exit "$RC"
           fi
 
-      # ===== BUNDLE =====
       - name: Preparar bundle (EXEs + DLLs)
         if: ${{ success() }}
         shell: msys2 {0}
@@ -355,7 +375,6 @@ jobs:
           path: ${{ env.ZIP_NAME }}
           if-no-files-found: error
 
-      # ===== TAG & RELEASE =====
       - name: Criar e enviar tag (idempotente)
         if: ${{ success() }}
         shell: bash
@@ -393,7 +412,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ===== LOGS =====
       - name: Mostrar logs em caso de falha (ninja/meson)
         if: ${{ failure() }}
         shell: msys2 {0}
