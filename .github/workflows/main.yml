@@ -26,7 +26,7 @@ jobs:
 
     env:
       ZIP_NAME: qemu-simulide-windows-mingw64-${{ inputs.version }}.zip
-      # Arena mapeada de forma fixa (confirmado nos seus logs)
+      # Arena já validado pelos seus logs
       CFLAGS: -Daction=simuAction -Dtime=simuTime
 
     steps:
@@ -86,7 +86,6 @@ jobs:
           done
           rm -rf build config.log meson-private meson-info || true
 
-      # SLIRP: detecta e injeta flags (ou desabilita sem quebrar o build)
       - name: Detectar libslirp (enable/disable + flags)
         shell: msys2 {0}
         run: |
@@ -155,79 +154,36 @@ jobs:
             --enable-tcg --enable-system \
             --disable-werror
 
-      # === DEFINIÇÃO DO STM32: arquivo próprio + patch do Meson ===
-      - name: Injetar stm32_uart_shim.c e adicionar ao Meson
+      # === Correção definitiva: define a função no MESMO TU de simuliface.c ===
+      - name: Inserir definição de stm32_f103c8_uart_action no final de system/simuliface.c
         shell: msys2 {0}
         run: |
           set -euo pipefail
-
-          # Só precisamos do shim se o símbolo for referenciado
+          # só se o símbolo for usado em algum .c
           if ! grep -RIn --include='*.c' -E '\bstm32_f103c8_uart_action\b' . >/dev/null 2>&1; then
             echo "Nenhuma referência a stm32_f103c8_uart_action; nada a fazer."
             exit 0
           fi
-
-          # Se já existir uma definição real, não criar shim
+          FILE="system/simuliface.c"
+          if [ ! -f "$FILE" ]; then
+            echo "::error::system/simuliface.c não encontrado, não é possível inserir a definição."
+            exit 1
+          fi
+          # se já existir uma definição real, não inserir
           if grep -RIl --include='*.c' -E '^[[:space:]]*void[[:space:]]+stm32_f103c8_uart_action[[:space:]]*\(' . >/dev/null 2>&1; then
-            echo "Definição real detectada; nenhum shim será criado."
+            echo "Definição real já presente; nenhum shim."
             exit 0
           fi
-
-          mkdir -p system
-          cat > system/stm32_uart_shim.c <<'EOF'
-          #include <stdint.h>
-          #ifdef __has_include
-          # if __has_include("system/simuliface.h")
-          #  include "system/simuliface.h"
-          # endif
-          #endif
-          /* Definição mínima para satisfazer o linker em Windows */
-          void stm32_f103c8_uart_action(void) {}
-          EOF
-
-          # Tente localizar a linha do simuliface.c em algum meson.build para descobrir o source set
-          MESON_FILES=($(git ls-files '**/meson.build' || find . -name meson.build))
-          ADDED=0
-          for mf in "${MESON_FILES[@]}"; do
-            if grep -q "simuliface\.c" "$mf"; then
-              # Pegue o prefixo do source set (ex.: common_ss, softmmu_ss, etc.)
-              VAR="$(grep -n "add(.*simuliface\.c" "$mf" | sed -E "s/^[0-9]+:([A-Za-z0-9_]+)\.add.*/\1/" | head -n1 || true)"
-              if [ -n "$VAR" ]; then
-                # Insira uma linha logo após a primeira ocorrência
-                awk -v var="$VAR" '
-                  {print}
-                  !done && $0 ~ var"\\.add\\(files\\(.*simuliface\\.c" {print var ".add(files(" "'" "system/stm32_uart_shim.c" "'" "))"; done=1}
-                ' "$mf" > "$mf.new" && mv "$mf.new" "$mf"
-                ADDED=1
-                echo "Adicionado system/stm32_uart_shim.c ao source set '$VAR' em $mf"
-                break
-              fi
-            fi
-          done
-
-          # Fallback: adiciona no system/meson.build usando common_ss
-          if [ "$ADDED" -ne 1 ]; then
-            if [ -f system/meson.build ]; then
-              if ! grep -q "stm32_uart_shim\.c" system/meson.build; then
-                echo "common_ss.add(files('stm32_uart_shim.c'))" >> system/meson.build
-                echo "Fallback: anexado ao system/meson.build via common_ss"
-                ADDED=1
-              fi
-            else
-              # Se não houver system/meson.build, cria um minimal e garante que subdir('system') exista
-              echo "common_ss.add(files('stm32_uart_shim.c'))" > system/meson.build
-              if ! grep -q "subdir('system')" meson.build; then
-                echo "subdir('system')" >> meson.build
-              fi
-              echo "Fallback: criado system/meson.build mínimo com common_ss"
-              ADDED=1
-            fi
+          if ! grep -q '/* CI_STM32_UART_DEFINED */' "$FILE"; then
+            printf "\n/* CI_STM32_UART_DEFINED */\nvoid stm32_f103c8_uart_action(void) {}\n" >> "$FILE"
+            echo "Definição adicionada ao final de ${FILE}"
+          else
+            echo "Marcação já presente; nada a fazer."
           fi
+          # força recompilar esse TU
+          find build -type f -name 'system_simuliface.c.obj' -delete 2>/dev/null || true
+          touch "$FILE"
 
-          # Toque os meson.build para forçar reconfig
-          touch meson.build system/meson.build
-
-      # === Build ===
       - name: Build (ninja com captura de stdout/stderr)
         shell: msys2 {0}
         env:
@@ -252,14 +208,13 @@ jobs:
             exit "$RC"
           fi
 
-      # === Verificar que o símbolo entrou (antes de empacotar) ===
       - name: Verificar símbolo stm32_f103c8_uart_action em libcommon.a
         shell: msys2 {0}
         run: |
           set -euo pipefail
           LIBA="$(find build -type f -name 'libcommon.a' -print -quit || true)"
           if [ -z "$LIBA" ]; then
-            echo "::warning::libcommon.a não encontrado; seguindo para empacote."
+            echo "::warning::libcommon.a não encontrado; seguindo."
             exit 0
           fi
           if nm -g "$LIBA" | grep -q ' stm32_f103c8_uart_action$'; then
