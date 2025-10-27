@@ -89,6 +89,23 @@ void stm32_f103c8_uart_action(void)
     }
     stm32_uart_receive( uart, data );
 }
+void stm32_f103c8_timer_action(void)
+{
+    Stm32Timer* timer = NULL;
+
+    int id = m_arena->data8;
+
+    switch (id)
+    {
+    case 0: timer = (Stm32Timer*)s->tim1; break;
+    case 1: timer = (Stm32Timer*)s->tim2; break;
+    case 2: timer = (Stm32Timer*)s->tim3; break;
+    case 3: timer = (Stm32Timer*)s->tim4; break;
+    case 4: timer = (Stm32Timer*)s->tim5; break;
+    }
+    stm32_timer_action( timer );
+}
+
 
 /// TODO: flash and ram sizes configurable ???
 #define FLASH_SIZE 0x00020000
