@@ -64,6 +64,7 @@ jobs:
             mingw-w64-x86_64-meson
             mingw-w64-x86_64-ntldd
             mingw-w64-x86_64-bzip2
+            mingw-w64-x86_64-binutils
 
       - name: Versões das ferramentas
         shell: msys2 {0}
@@ -73,6 +74,7 @@ jobs:
           which meson && meson --version
           which ninja && ninja --version
           which ntldd && ntldd --version
+          which nm && nm --version || true
           pkg-config --version || true
 
       - name: Limpar variáveis que alteram o configure
@@ -158,7 +160,7 @@ jobs:
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          # Só se o símbolo for referenciado em algum .c
+          # Só se o símbolo for referenciado
           if ! grep -RIn --include='*.c' -E '\bstm32_f103c8_uart_action\b' . >/dev/null 2>&1; then
             echo "Nenhuma referência a stm32_f103c8_uart_action; nada a fazer."
             exit 0
@@ -175,15 +177,14 @@ jobs:
           fi
           if grep -q '/* STM32_UART_SHIM_INSERTED */' "$FILE"; then
             echo "Shim já presente; seguindo."
-            exit 0
+          else
+            printf "\n/* STM32_UART_SHIM_INSERTED */\n/* Shim gerado no CI: fornece definição default para satisfazer o linker em Windows */\nvoid stm32_f103c8_uart_action(void) {}\n" >> "$FILE"
+            echo "Shim forte inserido no final de ${FILE}"
           fi
-          {
-            echo ""
-            echo "/* STM32_UART_SHIM_INSERTED */"
-            echo "/* Shim gerado no CI: fornece definição default para satisfazer o linker em Windows */"
-            echo "void stm32_f103c8_uart_action(void) {}"
-          } >> "$FILE"
-          echo "Shim forte inserido no final de ${FILE}"
+
+          # Força recompilação do TU (se já tiver sido compilado por algum motivo)
+          find build -type f -name 'system_simuliface.c.obj' -delete 2>/dev/null || true
+          touch "$FILE"
 
       # === Build ===
       - name: Build (ninja com captura de stdout/stderr)
@@ -208,6 +209,25 @@ jobs:
           if [ "$RC" -ne 0 ]; then
             echo "Build falhou com RC=$RC"
             exit "$RC"
+          fi
+
+      # === Verificar que o símbolo entrou (antes de empacotar) ===
+      - name: Verificar símbolo stm32_f103c8_uart_action em libcommon.a
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          LIBA="$(find build -type f -name 'libcommon.a' -print -quit || true)"
+          if [ -z "$LIBA" ]; then
+            echo "::warning::libcommon.a não encontrado; seguindo para empacote."
+            exit 0
+          fi
+          if nm -g "$LIBA" | grep -q ' stm32_f103c8_uart_action$'; then
+            echo "OK: símbolo presente em $(basename "$LIBA")"
+          else
+            echo "::error::stm32_f103c8_uart_action NÃO encontrado em $(basename "$LIBA")."
+            echo "Dump nm (trecho):"
+            nm -g "$LIBA" | tail -n 100 || true
+            exit 86
           fi
 
       - name: Preparar bundle (EXEs + DLLs)
