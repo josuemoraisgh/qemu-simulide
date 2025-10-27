@@ -26,6 +26,8 @@ jobs:
 
     env:
       ZIP_NAME: qemu-simulide-windows-mingw64-${{ inputs.version }}.zip
+      # <<< FIXO: mapeamento direto dos campos de arena >>>
+      CFLAGS: -Daction=simuAction -Dtime=simuTime
 
     steps:
       - name: Habilitar long paths no Git
@@ -104,7 +106,7 @@ jobs:
             echo "libslirp NÃO detectado; slirp será desabilitado."
           fi
 
-      # 1) Configure primeiro (gera diretórios/headers usados pelo build)
+      # === Configure (gerará build/ e headers necessários) ===
       - name: Configure (conforme README)
         shell: msys2 {0}
         env:
@@ -151,107 +153,7 @@ jobs:
             --enable-tcg --enable-system \
             --disable-werror
 
-      # 2) Arena: mapear por frequência real de uso (FAIL se não resolver)
-      - name: Mapear qemuArena_t (exportar -Daction/-Dtime)
-        id: detect_arena
-        shell: msys2 {0}
-        run: |
-          set -euo pipefail
-          # Coleta campos usados como m_arena->X em system/ e hw/
-          TMP_ALL="$(mktemp)"; : > "$TMP_ALL"
-          for d in system hw; do
-            [ -d "$d" ] || continue
-            grep -RIn --include='*.c' -E 'm_arena->([A-Za-z_][A-Za-z0-9_]*)' "$d" \
-              | sed -E 's/.*m_arena->([A-Za-z_][A-Za-z0-9_]*).*/\1/' >> "$TMP_ALL" || true
-          done
-          if ! [ -s "$TMP_ALL" ]; then
-            echo "::error::Não encontrei usos de m_arena->X em system/ ou hw/."
-            exit 43
-          fi
-
-          echo "Campos por frequência:"
-          sort "$TMP_ALL" | uniq -c | sort -nr | sed 's/^/  /'
-
-          # Preferências
-          PREF_ACTION=(action simuAction qemuAction op cmd event state)
-          PREF_TIME=(time simuTime qemuTime ts timestamp time_ns ticks tstamp)
-
-          pick_pref () {
-            which="$1"; shift
-            for k in "$@"; do
-              if grep -qx "$k" <(sed -n 's/.*m_arena->\([A-Za-z_][A-Za-z0-9_]*\).*/\1/p' "$TMP_ALL" | sort -u); then
-                echo "$k"; return 0
-              fi
-            done
-            return 1
-          }
-
-          A="$(pick_pref A "${PREF_ACTION[@]}" || true)"
-          T="$(pick_pref T "${PREF_TIME[@]}" || true)"
-
-          if [ -z "$A" ] || [ -z "$T" ]; then
-            echo "::group::Diagnóstico arena"
-            echo "Ação preferida encontrada: ${A:-<nenhuma>}"
-            echo "Tempo preferido encontrado: ${T:-<nenhum>}"
-            echo "::endgroup::"
-            echo "::error::Falha ao mapear automaticamente (action/time) pelos usos de m_arena."
-            exit 43
-          fi
-
-          if [ "$A" = "$T" ]; then
-            echo "::warning::Action e Time iguais (${A}); tentando segundo melhor."
-            # remove o escolhido e tenta outro para T
-            for k in "${PREF_TIME[@]}"; do
-              [ "$k" = "$A" ] && continue
-              if grep -qx "$k" <(sed -n 's/.*m_arena->\([A-Za-z_][A-Za-z0-9_]*\).*/\1/p' "$TMP_ALL" | sort -u); then
-                T="$k"; break
-              fi
-            done
-          fi
-
-          echo "Mapeado: action=${A} time=${T}"
-          echo "CFLAGS=${CFLAGS:+$CFLAGS }-Daction=${A} -Dtime=${T}" >> "$GITHUB_ENV"
-
-      # 3) Shim UART: inserir DEPOIS dos includes (se necessário)
-      - name: Shim STM32 UART (inserir após #include em system/simuliface.c)
-        shell: msys2 {0}
-        run: |
-          set -euo pipefail
-          FILE="system/simuliface.c"
-          if ! grep -RIn --include='*.c' -E '\bstm32_f103c8_uart_action\b' . >/dev/null 2>&1; then
-            echo "Nenhuma referência a stm32_f103c8_uart_action; nada a fazer."
-            exit 0
-          fi
-          if [ ! -f "${FILE}" ]; then
-            echo "system/simuliface.c não existe; nada a fazer."
-            exit 0
-          fi
-          # se já existe uma definição real, não insere
-          if grep -RIl --include='*.c' -E '^[[:space:]]*void[[:space:]]+stm32_f103c8_uart_action[[:space:]]*\(' . >/dev/null 2>&1; then
-            echo "Definição real já presente; nenhum shim."
-            exit 0
-          fi
-          if grep -q 'WEAK_STM32_UART_SHIM' "${FILE}"; then
-            echo "Shim já presente; seguindo."
-            exit 0
-          fi
-          LAST_INC="$(grep -n '^[[:space:]]*#include' "$FILE" | tail -n1 | cut -d: -f1 || true)"
-          if [ -z "$LAST_INC" ]; then LAST_INC=0; fi
-          head -n "${LAST_INC}" "${FILE}" > "${FILE}.new"
-          {
-            echo ""
-            echo "#ifndef WEAK_STM32_UART_SHIM"
-            echo "#define WEAK_STM32_UART_SHIM 1"
-            echo "void stm32_f103c8_uart_action(void) __attribute__((weak));"
-            echo "void stm32_f103c8_uart_action(void){}"
-            echo "#endif /* WEAK_STM32_UART_SHIM */"
-            echo ""
-          } >> "${FILE}.new"
-          tail -n +"$((LAST_INC+1))" "${FILE}" >> "${FILE}.new"
-          mv "${FILE}.new" "${FILE}"
-          echo "Shim fraco inserido após includes em ${FILE}"
-
-      # 4) Build
+      # === Build ===
       - name: Build (ninja com captura de stdout/stderr)
         shell: msys2 {0}
         env:
@@ -300,7 +202,7 @@ jobs:
           TMP_DEPS="$(mktemp)"; : > "${TMP_DEPS}"
           shopt -s nullglob
           for exe in bundle/*.exe; do
-            ntldd -R "$exe" 2>/dev/null | awk '/=>/ && /\.dll/ {gsub("\\\\","/"); print $3}' >> "${TMP_DEPS}" || true
+            ntldd -R "$exe" 2>/dev/null | awk '/=>/ &&/\.dll/ {gsub("\\\\","/"); print $3}' >> "${TMP_DEPS}" || true
           done
           if [ -s "${TMP_DEPS}" ]; then
             sort -u "${TMP_DEPS}" | while IFS= read -r dll; do
