@@ -63,8 +63,6 @@
 #define CR1_CEN 1<<0
 #define CR1_OPM 1<<3
 
-
-
 enum {
     TIMER_UP_COUNT   = 0,
     TIMER_DOWN_COUNT = 1
@@ -85,6 +83,8 @@ struct Stm32Timer {
     Stm32Rcc *stm32_rcc;
     //Stm32Gpio **stm32_gpio;
     //Stm32Afio *stm32_afio;
+
+    int id;
 
     uint8_t enabled;
     //int period;
@@ -423,6 +423,31 @@ void stm32_timer_set_rcc(Stm32Timer *tim, Stm32Rcc* rcc){
 //void stm32_timer_set_afio(Stm32Timer *tim, Stm32Afio* afio){
 //    tim->stm32_afio = afio;
 //}
+
+void stm32_timer_set_id( Stm32Timer *tim, int tim_num ) {
+    tim->id = tim_num -1;
+}
+//---------------------------------------------------------------------------
+
+void stm32_timer_action( Stm32Timer* timer );
+
+void stm32_timer_action( Stm32Timer* timer )
+{
+    //uint8_t action = m_arena->mask8;
+
+    //switch( action ) {
+    //case QTIMER_OVF:{
+    //    //static uint64_t lastTime = 0;
+    //    //uint64_t qemuTime = getQemu_ps();
+    //    //printf("                            OVF at time %lu\n",qemuTime-lastTime); fflush( stdout );
+    //    //lastTime = qemuTime;
+    //    stm32_timer_update_UIF( timer, 1);
+    //}break;
+    //default: break;
+    //}
+}
+
+//---------------------------------------------------------------------------
 
 static Property stm32_timer_properties[] = {
     DEFINE_PROP_PERIPH_T("periph", Stm32Timer, periph, STM32_PERIPH_UNDEFINED),

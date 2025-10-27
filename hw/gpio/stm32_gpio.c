@@ -89,7 +89,7 @@ static uint16_t readInputs( int32_t port )
 
 static void stm32_gpio_write_CRx( uint32_t value, uint8_t shift, uint8_t port )
 {
-    if( !m_arena->running ) return;        // Wait until SimulIDE is free
+    if( !m_arena->running ) return;
 
     m_arena->simuAction = ARM_GPIO_CRx;
     m_arena->data32 = value;
