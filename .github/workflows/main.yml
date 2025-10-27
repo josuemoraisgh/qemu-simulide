@@ -26,7 +26,7 @@ jobs:
 
     env:
       ZIP_NAME: qemu-simulide-windows-mingw64-${{ inputs.version }}.zip
-      # Mapeamento de arena fixo (conforme evidência dos próprios logs)
+      # Arena mapeada de forma fixa, conforme uso no código
       CFLAGS: -Daction=simuAction -Dtime=simuTime
 
     steps:
@@ -106,7 +106,7 @@ jobs:
             echo "libslirp NÃO detectado; slirp será desabilitado."
           fi
 
-      # === Configure (gera headers/meson) ===
+      # === Configure (gera build/ e headers necessários) ===
       - name: Configure (conforme README)
         shell: msys2 {0}
         env:
@@ -153,48 +153,37 @@ jobs:
             --enable-tcg --enable-system \
             --disable-werror
 
-      # === Shim UART: inserir APÓS os includes e SOMENTE a definição (evita Werror) ===
-      - name: Shim STM32 UART (após includes, sem protótipo duplicado)
+      # === Shim UART: append no FINAL do arquivo, forte e sem protótipo duplicado ===
+      - name: Shim STM32 UART (append fim de system/simuliface.c)
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          # Só se existir referência ao símbolo
+          # Só se o símbolo for referenciado em algum .c
           if ! grep -RIn --include='*.c' -E '\bstm32_f103c8_uart_action\b' . >/dev/null 2>&1; then
             echo "Nenhuma referência a stm32_f103c8_uart_action; nada a fazer."
             exit 0
           fi
-          FILE="system/simuliface.c"
-          [ -f "$FILE" ] || { echo "system/simuliface.c não existe; nada a fazer."; exit 0; }
-
-          # Se já houver uma definição "forte" (real), não insere shim
+          # Se já houver uma definição real, não inserir shim
           if grep -RIl --include='*.c' -E '^[[:space:]]*void[[:space:]]+stm32_f103c8_uart_action[[:space:]]*\(' . >/dev/null 2>&1; then
             echo "Definição real já presente; nenhum shim."
             exit 0
           fi
-          # Se já inserimos antes, pula
-          if grep -q 'WEAK_STM32_UART_SHIM' "$FILE"; then
+          FILE="system/simuliface.c"
+          if [ ! -f "$FILE" ]; then
+            echo "system/simuliface.c não encontrado; não é possível inserir shim."
+            exit 0
+          fi
+          if grep -q '/* STM32_UART_SHIM_INSERTED */' "$FILE"; then
             echo "Shim já presente; seguindo."
             exit 0
           fi
-
-          # Posição: depois do último #include
-          LAST_INC_LINE="$(grep -n '^[[:space:]]*#include' "$FILE" | tail -n1 | cut -d: -f1 || true)"
-          [ -z "$LAST_INC_LINE" ] && LAST_INC_LINE=0
-
-          head -n "$LAST_INC_LINE" "$FILE" > "${FILE}.new"
           {
             echo ""
-            echo "#ifndef WEAK_STM32_UART_SHIM"
-            echo "#define WEAK_STM32_UART_SHIM 1"
-            # Não declarar protótipo aqui para não duplicar com o header — só a definição fraca
-            echo "void stm32_f103c8_uart_action(void) __attribute__((weak));"
-            echo "void stm32_f103c8_uart_action(void){}"
-            echo "#endif /* WEAK_STM32_UART_SHIM */"
-            echo ""
-          } >> "${FILE}.new"
-          tail -n +"$((LAST_INC_LINE+1))" "$FILE" >> "${FILE}.new"
-          mv "${FILE}.new" "$FILE"
-          echo "Shim fraco inserido após includes em ${FILE}"
+            echo "/* STM32_UART_SHIM_INSERTED */"
+            echo "/* Shim gerado no CI: fornece definição default para satisfazer o linker em Windows */"
+            echo "void stm32_f103c8_uart_action(void) {}"
+          } >> "$FILE"
+          echo "Shim forte inserido no final de ${FILE}"
 
       # === Build ===
       - name: Build (ninja com captura de stdout/stderr)
