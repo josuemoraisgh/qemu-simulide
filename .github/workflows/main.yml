@@ -159,30 +159,54 @@ jobs:
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          # só se o símbolo for usado em algum .c
+
+          # 1) Só faça algo se a função for REFERENCIADA em algum .c
           if ! grep -RIn --include='*.c' -E '\bstm32_f103c8_uart_action\b' . >/dev/null 2>&1; then
             echo "Nenhuma referência a stm32_f103c8_uart_action; nada a fazer."
             exit 0
           fi
+
           FILE="system/simuliface.c"
           if [ ! -f "$FILE" ]; then
             echo "::error::system/simuliface.c não encontrado, não é possível inserir a definição."
             exit 1
           fi
-          # se já existir uma definição real, não inserir
-          if grep -RIl --include='*.c' -E '^[[:space:]]*void[[:space:]]+stm32_f103c8_uart_action[[:space:]]*\(' . >/dev/null 2>&1; then
-            echo "Definição real já presente; nenhum shim."
+
+          # 2) Detectar DEFINIÇÃO real (com corpo), não apenas declaração
+          #    Procura a assinatura e confirma que há uma '{' na MESMA linha ou nas 3 próximas
+          has_def() {
+            awk '
+              /stm32_f103c8_uart_action[[:space:]]*\(/ {
+                hit=1; lines=0;
+                if ($0 ~ /\{/) { print "yes"; exit }
+                next
+              }
+              hit {
+                lines++
+                if ($0 ~ /\{/) { print "yes"; exit }
+                if (lines>=3) { print "no"; exit }
+              }
+            ' "$1"
+          }
+
+          DEF_PRESENT="$(has_def "$FILE" || echo no)"
+          if [ "$DEF_PRESENT" = "yes" ]; then
+            echo "Definição real já presente em ${FILE}; nenhum shim."
             exit 0
           fi
+
+          # 3) Se ainda não houver corpo, ANEXA definição simples ao fim do arquivo
           if ! grep -q '/* CI_STM32_UART_DEFINED */' "$FILE"; then
             printf "\n/* CI_STM32_UART_DEFINED */\nvoid stm32_f103c8_uart_action(void) {}\n" >> "$FILE"
             echo "Definição adicionada ao final de ${FILE}"
           else
             echo "Marcação já presente; nada a fazer."
           fi
-          # força recompilar esse TU
+
+          # 4) Garante recompilação do TU
           find build -type f -name 'system_simuliface.c.obj' -delete 2>/dev/null || true
           touch "$FILE"
+
 
       - name: Build (ninja com captura de stdout/stderr)
         shell: msys2 {0}
