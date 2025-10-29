@@ -63,7 +63,7 @@ typedef struct
    DeviceState *adc2;
 } Stm32_F103c8_Mcu;
 
-Stm32_F103c8_Mcu* s;
+Stm32_F103c8_Mcu* mcu;
 
 //#define QEMU_INTERNAL_UART0_BAUD 7
 //#define QEMU_INTERNAL_UART1_BAUD 8
@@ -83,28 +83,42 @@ void stm32_f103c8_uart_action(void)
 
     switch (id)
     {
-    case 0: uart = (Stm32Uart*)s->uart1; break;
-    case 1: uart = (Stm32Uart*)s->uart2; break;
-    case 2: uart = (Stm32Uart*)s->uart3; break;
+    case 0: uart = (Stm32Uart*)mcu->uart1; break;
+    case 1: uart = (Stm32Uart*)mcu->uart2; break;
+    case 2: uart = (Stm32Uart*)mcu->uart3; break;
     }
     stm32_uart_receive( uart, data );
 }
-void stm32_f103c8_timer_action(void)
+
+Stm32Timer* stm32_get_timer( int number )
 {
-    Stm32Timer* timer = NULL;
-
-    int id = m_arena->data8;
-
-    switch (id)
+    switch( number )
     {
-    case 0: timer = (Stm32Timer*)s->tim1; break;
-    case 1: timer = (Stm32Timer*)s->tim2; break;
-    case 2: timer = (Stm32Timer*)s->tim3; break;
-    case 3: timer = (Stm32Timer*)s->tim4; break;
-    case 4: timer = (Stm32Timer*)s->tim5; break;
+    case 1: return (Stm32Timer*)mcu->tim1;
+    case 2: return (Stm32Timer*)mcu->tim2;
+    case 3: return (Stm32Timer*)mcu->tim3;
+    case 4: return (Stm32Timer*)mcu->tim4;
+    case 5: return (Stm32Timer*)mcu->tim5;
     }
-    stm32_timer_action( timer );
+    return NULL;
 }
+//void stm32_f103c8_timer_action(void);
+//void stm32_f103c8_timer_action(void)
+//{
+//    Stm32Timer* timer = NULL;
+//
+//    int id = m_arena->data8;
+//
+//    switch (id)
+//    {
+//    case 0: timer = (Stm32Timer*)mcu->tim1; break;
+//    case 1: timer = (Stm32Timer*)mcu->tim2; break;
+//    case 2: timer = (Stm32Timer*)mcu->tim3; break;
+//    case 3: timer = (Stm32Timer*)mcu->tim4; break;
+//    case 4: timer = (Stm32Timer*)mcu->tim5; break;
+//    }
+//    stm32_timer_action( timer );
+//}
 
 
 /// TODO: flash and ram sizes configurable ???
@@ -119,72 +133,72 @@ static void stm32_f103c8_init( MachineState *machine )
 
    //uint32_t freq = getFrequency();
 
-   s = (Stm32_F103c8_Mcu*)g_malloc0( sizeof(Stm32_F103c8_Mcu) );
+   mcu = (Stm32_F103c8_Mcu*)g_malloc0( sizeof(Stm32_F103c8_Mcu) );
 
    sysclk = clock_new( OBJECT(machine), "SYSCLK");
    clock_set_hz( sysclk, SYSCLK_FRQ );
    stm32_init( FLASH_SIZE, RAM_SIZE, machine->kernel_filename, 8000000, 32768, sysclk );
 
-   s->gpio_a = DEVICE( object_resolve_path("/machine/stm32/gpio[a]" , NULL) );
-   s->gpio_b = DEVICE( object_resolve_path("/machine/stm32/gpio[b]" , NULL) );
-   s->gpio_c = DEVICE( object_resolve_path("/machine/stm32/gpio[c]" , NULL) );
-   s->gpio_d = DEVICE( object_resolve_path("/machine/stm32/gpio[d]" , NULL) );
-   s->uart1  = DEVICE( object_resolve_path("/machine/stm32/uart[1]" , NULL) );
-   s->uart2  = DEVICE( object_resolve_path("/machine/stm32/uart[2]" , NULL) );
-   s->uart3  = DEVICE( object_resolve_path("/machine/stm32/uart[3]" , NULL) );
-   s->i2c1   = DEVICE( object_resolve_path("/machine/stm32/i2c[1]"  , NULL) );
-   s->i2c2   = DEVICE( object_resolve_path("/machine/stm32/i2c[2]"  , NULL) );
-   s->spi1   = DEVICE( object_resolve_path("/machine/stm32/spi[1]"  , NULL) );
-   s->spi2   = DEVICE( object_resolve_path("/machine/stm32/spi[2]"  , NULL) );
-   s->afio   = DEVICE( object_resolve_path("/machine/stm32/afio"    , NULL) );
-   s->tim1   = DEVICE( object_resolve_path("/machine/stm32/timer[1]", NULL) );
-   s->tim2   = DEVICE( object_resolve_path("/machine/stm32/timer[2]", NULL) );
-   s->tim3   = DEVICE( object_resolve_path("/machine/stm32/timer[3]", NULL) );
-   s->tim4   = DEVICE( object_resolve_path("/machine/stm32/timer[4]", NULL) );
-   s->tim5   = DEVICE( object_resolve_path("/machine/stm32/timer[5]", NULL) );
-   s->adc1   = DEVICE( object_resolve_path("/machine/stm32/adc[1]"  , NULL) );
-   s->adc2   = DEVICE( object_resolve_path("/machine/stm32/adc[2]"  , NULL) );
+   mcu->gpio_a = DEVICE( object_resolve_path("/machine/stm32/gpio[a]" , NULL) );
+   mcu->gpio_b = DEVICE( object_resolve_path("/machine/stm32/gpio[b]" , NULL) );
+   mcu->gpio_c = DEVICE( object_resolve_path("/machine/stm32/gpio[c]" , NULL) );
+   mcu->gpio_d = DEVICE( object_resolve_path("/machine/stm32/gpio[d]" , NULL) );
+   mcu->uart1  = DEVICE( object_resolve_path("/machine/stm32/uart[1]" , NULL) );
+   mcu->uart2  = DEVICE( object_resolve_path("/machine/stm32/uart[2]" , NULL) );
+   mcu->uart3  = DEVICE( object_resolve_path("/machine/stm32/uart[3]" , NULL) );
+   mcu->i2c1   = DEVICE( object_resolve_path("/machine/stm32/i2c[1]"  , NULL) );
+   mcu->i2c2   = DEVICE( object_resolve_path("/machine/stm32/i2c[2]"  , NULL) );
+   mcu->spi1   = DEVICE( object_resolve_path("/machine/stm32/spi[1]"  , NULL) );
+   mcu->spi2   = DEVICE( object_resolve_path("/machine/stm32/spi[2]"  , NULL) );
+   mcu->afio   = DEVICE( object_resolve_path("/machine/stm32/afio"    , NULL) );
+   mcu->tim1   = DEVICE( object_resolve_path("/machine/stm32/timer[1]", NULL) );
+   mcu->tim2   = DEVICE( object_resolve_path("/machine/stm32/timer[2]", NULL) );
+   mcu->tim3   = DEVICE( object_resolve_path("/machine/stm32/timer[3]", NULL) );
+   mcu->tim4   = DEVICE( object_resolve_path("/machine/stm32/timer[4]", NULL) );
+   mcu->tim5   = DEVICE( object_resolve_path("/machine/stm32/timer[5]", NULL) );
+   mcu->adc1   = DEVICE( object_resolve_path("/machine/stm32/adc[1]"  , NULL) );
+   mcu->adc2   = DEVICE( object_resolve_path("/machine/stm32/adc[2]"  , NULL) );
 
-   assert( s->gpio_a );
-   assert( s->gpio_b );
-   assert( s->gpio_c );
-   assert( s->gpio_d );
-   assert( s->uart2 );
-   assert( s->uart1 );
-   assert( s->uart3 );
-   assert( s->i2c1 );
-   assert( s->i2c2 );
-   assert( s->spi1 );
-   assert( s->spi2 );
-   assert( s->afio );
-   assert( s->tim1 );
-   assert( s->tim2 );
-   assert( s->tim3 );
-   assert( s->tim4 );
-   assert( s->tim5 );
-   assert( s->adc1 );
-   assert( s->adc2 );
+   assert( mcu->gpio_a );
+   assert( mcu->gpio_b );
+   assert( mcu->gpio_c );
+   assert( mcu->gpio_d );
+   assert( mcu->uart2 );
+   assert( mcu->uart1 );
+   assert( mcu->uart3 );
+   assert( mcu->i2c1 );
+   assert( mcu->i2c2 );
+   assert( mcu->spi1 );
+   assert( mcu->spi2 );
+   assert( mcu->afio );
+   assert( mcu->tim1 );
+   assert( mcu->tim2 );
+   assert( mcu->tim3 );
+   assert( mcu->tim4 );
+   assert( mcu->tim5 );
+   assert( mcu->adc1 );
+   assert( mcu->adc2 );
 
    /* Connect RS232 to UART 1 */
-   //stm32_uart_connect( (Stm32Uart *)s->uart1, serial_hd(0)/*, 0*/ );
+   //stm32_uart_connect( (Stm32Uart *)mcu->uart1, serial_hd(0)/*, 0*/ );
 
    /* These additional UARTs have not been tested yet... */
-   //stm32_uart_connect( (Stm32Uart *)s->uart2, serial_hd(1)/*, 0*/  );
-   //stm32_uart_connect( (Stm32Uart *)s->uart3, serial_hd(2)/*, 0*/  );
+   //stm32_uart_connect( (Stm32Uart *)mcu->uart2, serial_hd(1)/*, 0*/  );
+   //stm32_uart_connect( (Stm32Uart *)mcu->uart3, serial_hd(2)/*, 0*/  );
 
-   DeviceState *i2c_master1 = DEVICE(s->i2c1);
+   DeviceState *i2c_master1 = DEVICE(mcu->i2c1);
    I2CBus *i2c_bus1 = I2C_BUS( qdev_get_child_bus(i2c_master1, "i2c") );
    i2c_slave_create_simple( i2c_bus1, "i2c_iface", 0x00 );
 
-   DeviceState *i2c_master2 = DEVICE(s->i2c2);
+   DeviceState *i2c_master2 = DEVICE(mcu->i2c2);
    I2CBus *i2c_bus2 = I2C_BUS(qdev_get_child_bus(i2c_master2, "i2c"));
    i2c_slave_create_simple(i2c_bus2, "i2c_iface", 0x01);
 
-   /// FIXME simulide: DeviceState *spi_master1 = DEVICE(s->spi1);
+   /// FIXME simulide: DeviceState *spi_master1 = DEVICE(mcu->spi1);
    /// FIXME simulide: SSIBus *spi_bus1 = (SSIBus *)qdev_get_child_bus(spi_master1, "ssi");
    /// FIXME simulide: ssi_create_peripheral(spi_bus1, "simul_spi");
 
-   /// FIXME simulide: DeviceState *spi_master2 = DEVICE(s->spi2);
+   /// FIXME simulide: DeviceState *spi_master2 = DEVICE(mcu->spi2);
    /// FIXME simulide: SSIBus *spi_bus2 = (SSIBus *)qdev_get_child_bus(spi_master2, "ssi");
    /// FIXME simulide: ssi_create_peripheral(spi_bus2, "simul_spi");
 

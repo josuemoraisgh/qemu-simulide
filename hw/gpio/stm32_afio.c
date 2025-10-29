@@ -95,15 +95,23 @@ static uint32_t stm32_afio_AFIO_MAPR_read(Stm32Afio *s)
 static void stm32_afio_AFIO_MAPR_write(Stm32Afio *s, uint32_t new_value, bool init)
 {
     s->AFIO_MAPR = new_value;
-	s->Remap[STM32_SPI1] = extract32(s->AFIO_MAPR, AFIO_MAPR_SPI1_REMAP_BIT, 1);
-	s->Remap[STM32_I2C1] = extract32(s->AFIO_MAPR, AFIO_MAPR_I2C1_REMAP_BIT, 1);
+    s->Remap[STM32_SPI1]  = extract32(s->AFIO_MAPR, AFIO_MAPR_SPI1_REMAP_BIT, 1);
+    s->Remap[STM32_I2C1]  = extract32(s->AFIO_MAPR, AFIO_MAPR_I2C1_REMAP_BIT, 1);
     s->Remap[STM32_UART1] = extract32(s->AFIO_MAPR, AFIO_MAPR_USART1_REMAP_BIT, 1);
     s->Remap[STM32_UART2] = extract32(s->AFIO_MAPR, AFIO_MAPR_USART2_REMAP_BIT, 1);
     s->Remap[STM32_UART3] = (s->AFIO_MAPR & AFIO_MAPR_USART3_REMAP_MASK) >> AFIO_MAPR_USART3_REMAP_START;
-    s->Remap[STM32_TIM1] = (s->AFIO_MAPR & AFIO_MAPR_TIM1_REMAP_MASK) >> AFIO_MAPR_TIM1_REMAP_START;
-    s->Remap[STM32_TIM2] = (s->AFIO_MAPR & AFIO_MAPR_TIM2_REMAP_MASK) >> AFIO_MAPR_TIM2_REMAP_START;
-    s->Remap[STM32_TIM3] = (s->AFIO_MAPR & AFIO_MAPR_TIM3_REMAP_MASK) >> AFIO_MAPR_TIM3_REMAP_START;
-    s->Remap[STM32_TIM4] = extract32(s->AFIO_MAPR, AFIO_MAPR_TIM4_REMAP_BIT, 1);
+    s->Remap[STM32_TIM1]  = (s->AFIO_MAPR & AFIO_MAPR_TIM1_REMAP_MASK) >> AFIO_MAPR_TIM1_REMAP_START;
+    s->Remap[STM32_TIM2]  = (s->AFIO_MAPR & AFIO_MAPR_TIM2_REMAP_MASK) >> AFIO_MAPR_TIM2_REMAP_START;
+    s->Remap[STM32_TIM3]  = (s->AFIO_MAPR & AFIO_MAPR_TIM3_REMAP_MASK) >> AFIO_MAPR_TIM3_REMAP_START;
+    s->Remap[STM32_TIM4]  = extract32(s->AFIO_MAPR, AFIO_MAPR_TIM4_REMAP_BIT, 1);
+
+    stm32_timer_remap( 1, s->Remap[STM32_TIM1] );
+    stm32_timer_remap( 2, s->Remap[STM32_TIM2] );
+    stm32_timer_remap( 3, s->Remap[STM32_TIM3] );
+    stm32_timer_remap( 4, s->Remap[STM32_TIM4] );
+    stm32_timer_remap( 5, s->Remap[STM32_TIM5] );
+
+    /// TODO:UART, I2C, SPI
 }
 
 /* Write the External Interrupt Configuration Register.

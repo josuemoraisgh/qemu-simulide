@@ -62,7 +62,7 @@ static void getNextEvent(void)
     m_timeout = 0;
 
     uint64_t nextTime_ns = m_arena->qemuTime/1000;
-    m_arena->qemuTime = 0;
+    //m_arena->qemuTime = 0;
 
     if( m_lastQemuTime != nextTime_ns )
     {
@@ -75,6 +75,7 @@ static void getNextEvent(void)
 
 void doAction(void)
 {
+    m_arena->qemuTime = 0;
     //printf("Qemu: doAction at time %lu\n", getQemu_ps() ); fflush( stdout );
     m_arena->simuTime = getQemu_ps();
 
@@ -86,7 +87,7 @@ void doAction(void)
             {
             case SIM_I2C: break;
             case SIM_USART: stm32_f103c8_uart_action(); break;
-            case SIM_TIMER: stm32_f103c8_timer_action(); break;
+            case SIM_TIMER: break;//stm32_f103c8_timer_action(); break;
             default: break;
             }
             m_arena->qemuAction = 0;

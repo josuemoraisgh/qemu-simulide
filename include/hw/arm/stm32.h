@@ -315,6 +315,8 @@ typedef struct Stm32Timer Stm32Timer;
 #define TYPE_STM32_TIMER "stm32-timer"
 #define STM32_TIMER(obj) OBJECT_CHECK(Stm32Timer, (obj), TYPE_STM32_TIMER)
 
+void stm32_timer_remap( int number, uint8_t value );
+
 /* CRC */
 typedef struct Stm32crc Stm32crc;
 
@@ -397,6 +399,8 @@ void stm32_dac_set_rcc(Stm32Dac *dac, Stm32Rcc* rcc);
 void stm32_afio_set_rcc(Stm32Afio *afio, Stm32Rcc* rcc);
 
 void stm32_rcc_set_sysclk(Stm32Rcc* rcc, Clock *sysclk);
+
+Stm32Timer* stm32_get_timer( int number );
 
 #define TYPE_STM32F103_SOC "stm32f103-soc"
 OBJECT_DECLARE_SIMPLE_TYPE(STM32F103State, STM32F103_SOC)
