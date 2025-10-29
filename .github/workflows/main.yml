@@ -106,6 +106,33 @@ jobs:
             echo "LDFLAGS=" >> "$GITHUB_ENV"
             echo "libslirp NÃO detectado; slirp será desabilitado."
           fi
+          
+      - name: Criar shims (protótipos + definições vazias) e exportar flags
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          # 1) Cabeçalho com os protótipos (corrige o erro de compilação em simuliface.c)
+          cat > /tmp/ci_shims.h << 'EOF'
+          #ifndef CI_SIMULIDE_SHIMS_H
+          #define CI_SIMULIDE_SHIMS_H
+          void stm32_f103c8_uart_action(void);
+          void stm32_f103c8_timer_action(void);
+          #endif
+          EOF
+
+          # 2) Objeto com definições vazias (satisfaz o link se não houver implementação real)
+          cat > /tmp/ci_shims.c << 'EOF'
+          void stm32_f103c8_uart_action(void) {}
+          void stm32_f103c8_timer_action(void) {}
+          EOF
+
+          gcc -m64 -c /tmp/ci_shims.c -o /tmp/ci_shims.o
+
+          # 3) Exporta para o ambiente do job (serão lidas no passo "Configure")
+          echo "CPPFLAGS=${CPPFLAGS:+$CPPFLAGS }-include /tmp/ci_shims.h" >> "$GITHUB_ENV"
+          echo "LDFLAGS=${LDFLAGS:+$LDFLAGS }/tmp/ci_shims.o" >> "$GITHUB_ENV"
+
+          echo "Shims prontos: /tmp/ci_shims.h e /tmp/ci_shims.o"
 
       # === Configure (gera build/ e headers) ===
       - name: Configure (conforme README)
@@ -153,60 +180,6 @@ jobs:
             --disable-zstd \
             --enable-tcg --enable-system \
             --disable-werror
-
-      # === Correção definitiva: define a função no MESMO TU de simuliface.c ===
-      - name: Inserir definição de stm32_f103c8_uart_action no final de system/simuliface.c
-        shell: msys2 {0}
-        run: |
-          set -euo pipefail
-
-          # 1) Só faça algo se a função for REFERENCIADA em algum .c
-          if ! grep -RIn --include='*.c' -E '\bstm32_f103c8_uart_action\b' . >/dev/null 2>&1; then
-            echo "Nenhuma referência a stm32_f103c8_uart_action; nada a fazer."
-            exit 0
-          fi
-
-          FILE="system/simuliface.c"
-          if [ ! -f "$FILE" ]; then
-            echo "::error::system/simuliface.c não encontrado, não é possível inserir a definição."
-            exit 1
-          fi
-
-          # 2) Detectar DEFINIÇÃO real (com corpo), não apenas declaração
-          #    Procura a assinatura e confirma que há uma '{' na MESMA linha ou nas 3 próximas
-          has_def() {
-            awk '
-              /stm32_f103c8_uart_action[[:space:]]*\(/ {
-                hit=1; lines=0;
-                if ($0 ~ /\{/) { print "yes"; exit }
-                next
-              }
-              hit {
-                lines++
-                if ($0 ~ /\{/) { print "yes"; exit }
-                if (lines>=3) { print "no"; exit }
-              }
-            ' "$1"
-          }
-
-          DEF_PRESENT="$(has_def "$FILE" || echo no)"
-          if [ "$DEF_PRESENT" = "yes" ]; then
-            echo "Definição real já presente em ${FILE}; nenhum shim."
-            exit 0
-          fi
-
-          # 3) Se ainda não houver corpo, ANEXA definição simples ao fim do arquivo
-          if ! grep -q '/* CI_STM32_UART_DEFINED */' "$FILE"; then
-            printf "\n/* CI_STM32_UART_DEFINED */\nvoid stm32_f103c8_uart_action(void) {}\n" >> "$FILE"
-            echo "Definição adicionada ao final de ${FILE}"
-          else
-            echo "Marcação já presente; nada a fazer."
-          fi
-
-          # 4) Garante recompilação do TU
-          find build -type f -name 'system_simuliface.c.obj' -delete 2>/dev/null || true
-          touch "$FILE"
-
 
       - name: Build (ninja com captura de stdout/stderr)
         shell: msys2 {0}
