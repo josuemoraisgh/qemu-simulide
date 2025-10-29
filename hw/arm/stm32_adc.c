@@ -921,7 +921,7 @@ static void stm32_adc_write(void *opaque, hwaddr offset, uint64_t value, unsigne
 {
     Stm32Adc *s = (Stm32Adc *)opaque;
     
-    stm32_rcc_check_periph_clk( (Stm32Rcc *)s->stm32_rcc, s->periph );
+    if( !stm32_rcc_check_periph_clk( s->stm32_rcc, s->periph ) ) return;
 
     switch (offset & 0xfffffffc) {
         case oADC_SR :  stm32_ADC_SR_write(s,value);break;

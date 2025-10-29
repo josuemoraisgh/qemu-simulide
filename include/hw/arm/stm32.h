@@ -221,7 +221,7 @@ typedef struct Stm32Afio Stm32Afio;
 
 /* Gets the pin mapping for the specified peripheral.  Will return one
  * of the mapping values defined above. */
-uint32_t stm32_afio_get_periph_map(Stm32Afio *s, int32_t periph_num);
+///uint32_t stm32_afio_get_periph_map(Stm32Afio *s, int32_t periph_num);
 
 
 /* EXTI */
@@ -247,7 +247,7 @@ typedef struct Stm32Rcc Stm32Rcc;
 #define STM32_RCC(obj) OBJECT_CHECK(Stm32Rcc, (obj), TYPE_STM32_RCC)
 
 /* Checks if the specified peripheral clock is enabled. Generates a hardware error if not. */
-void stm32_rcc_check_periph_clk(Stm32Rcc *s, stm32_periph_t periph);
+bool stm32_rcc_check_periph_clk(Stm32Rcc *s, stm32_periph_t periph);
 
 /* Sets the IRQ to be called when the specified peripheral clock changes frequency. */
 void stm32_rcc_set_periph_clk_irq( Stm32Rcc *s, stm32_periph_t periph, qemu_irq periph_irq);

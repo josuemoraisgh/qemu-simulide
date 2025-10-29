@@ -27,8 +27,11 @@
 /* DEFINITIONS */
 
 #define AFIO_EVCR_OFFSET 0x00
-
 #define AFIO_MAPR_OFFSET 0x04
+#define AFIO_EXTICR1_OFFSET 0x08
+#define AFIO_EXTICR2_OFFSET 0x0c
+#define AFIO_EXTICR3_OFFSET 0x10
+#define AFIO_EXTICR4_OFFSET 0x14
 
 #define AFIO_MAPR_TIM4_REMAP_BIT 12
 #define AFIO_MAPR_TIM3_REMAP_START 10
@@ -46,11 +49,6 @@
 
 #define AFIO_EXTICR_START 0x08
 #define AFIO_EXTICR_COUNT 4
-
-#define AFIO_EXTICR1_OFFSET 0x08
-#define AFIO_EXTICR2_OFFSET 0x0c
-#define AFIO_EXTICR3_OFFSET 0x10
-#define AFIO_EXTICR4_OFFSET 0x14
 
 #define AFIO_EXTI_PER_CR 4
 
@@ -70,97 +68,73 @@ struct Stm32Afio {
     Stm32Gpio *gpio[STM32_GPIO_COUNT];
     Stm32Exti *exti;
 
-    uint32_t AFIO_EXTICR[AFIO_EXTICR_COUNT];
     uint32_t AFIO_MAPR;
-    uint32_t Remap[STM32_PERIPH_COUNT];
+    uint16_t AFIO_EXTICR[AFIO_EXTICR_COUNT];
 };
-
 
 
 /* REGISTER IMPLEMENTATION */
 
-static uint32_t stm32_afio_AFIO_MAPR_read(Stm32Afio *s)
+static void stm32_afio_AFIO_MAPR_write( Stm32Afio *s, uint32_t mapr, bool init )
 {
-    return (s->Remap[STM32_SPI1] << AFIO_MAPR_SPI1_REMAP_BIT) |
-           (s->Remap[STM32_I2C1] << AFIO_MAPR_I2C1_REMAP_BIT) |
-           (s->Remap[STM32_UART1] << AFIO_MAPR_USART1_REMAP_BIT) |
-           (s->Remap[STM32_UART2] << AFIO_MAPR_USART2_REMAP_BIT) |
-           (s->Remap[STM32_UART3] << AFIO_MAPR_USART3_REMAP_START)|
-           (s->Remap[STM32_TIM1] << AFIO_MAPR_TIM1_REMAP_START)|
-           (s->Remap[STM32_TIM2] << AFIO_MAPR_TIM2_REMAP_START)|
-           (s->Remap[STM32_TIM3] << AFIO_MAPR_TIM3_REMAP_START)|
-           (s->Remap[STM32_TIM4] << AFIO_MAPR_TIM4_REMAP_BIT);     
-}
+    if( !init && s->AFIO_MAPR == mapr ) return;
+    s->AFIO_MAPR = mapr;
 
-static void stm32_afio_AFIO_MAPR_write(Stm32Afio *s, uint32_t new_value, bool init)
-{
-    s->AFIO_MAPR = new_value;
-    s->Remap[STM32_SPI1]  = extract32(s->AFIO_MAPR, AFIO_MAPR_SPI1_REMAP_BIT, 1);
-    s->Remap[STM32_I2C1]  = extract32(s->AFIO_MAPR, AFIO_MAPR_I2C1_REMAP_BIT, 1);
-    s->Remap[STM32_UART1] = extract32(s->AFIO_MAPR, AFIO_MAPR_USART1_REMAP_BIT, 1);
-    s->Remap[STM32_UART2] = extract32(s->AFIO_MAPR, AFIO_MAPR_USART2_REMAP_BIT, 1);
-    s->Remap[STM32_UART3] = (s->AFIO_MAPR & AFIO_MAPR_USART3_REMAP_MASK) >> AFIO_MAPR_USART3_REMAP_START;
-    s->Remap[STM32_TIM1]  = (s->AFIO_MAPR & AFIO_MAPR_TIM1_REMAP_MASK) >> AFIO_MAPR_TIM1_REMAP_START;
-    s->Remap[STM32_TIM2]  = (s->AFIO_MAPR & AFIO_MAPR_TIM2_REMAP_MASK) >> AFIO_MAPR_TIM2_REMAP_START;
-    s->Remap[STM32_TIM3]  = (s->AFIO_MAPR & AFIO_MAPR_TIM3_REMAP_MASK) >> AFIO_MAPR_TIM3_REMAP_START;
-    s->Remap[STM32_TIM4]  = extract32(s->AFIO_MAPR, AFIO_MAPR_TIM4_REMAP_BIT, 1);
+    //s->Remap[STM32_SPI1]  = extract32(s->AFIO_MAPR, AFIO_MAPR_SPI1_REMAP_BIT, 1);
+    //s->Remap[STM32_I2C1]  = extract32(s->AFIO_MAPR, AFIO_MAPR_I2C1_REMAP_BIT, 1);
+    //s->Remap[STM32_UART1] = extract32(s->AFIO_MAPR, AFIO_MAPR_USART1_REMAP_BIT, 1);
+    //s->Remap[STM32_UART2] = extract32(s->AFIO_MAPR, AFIO_MAPR_USART2_REMAP_BIT, 1);
+    //s->Remap[STM32_UART3] = (s->AFIO_MAPR & AFIO_MAPR_USART3_REMAP_MASK) >> AFIO_MAPR_USART3_REMAP_START;
 
-    stm32_timer_remap( 1, s->Remap[STM32_TIM1] );
-    stm32_timer_remap( 2, s->Remap[STM32_TIM2] );
-    stm32_timer_remap( 3, s->Remap[STM32_TIM3] );
-    stm32_timer_remap( 4, s->Remap[STM32_TIM4] );
-    stm32_timer_remap( 5, s->Remap[STM32_TIM5] );
+    stm32_timer_remap( 1, (s->AFIO_MAPR & AFIO_MAPR_TIM1_REMAP_MASK) >> AFIO_MAPR_TIM1_REMAP_START );
+    stm32_timer_remap( 2, (s->AFIO_MAPR & AFIO_MAPR_TIM2_REMAP_MASK) >> AFIO_MAPR_TIM2_REMAP_START );
+    stm32_timer_remap( 3, (s->AFIO_MAPR & AFIO_MAPR_TIM3_REMAP_MASK) >> AFIO_MAPR_TIM3_REMAP_START );
+    stm32_timer_remap( 4, extract32(s->AFIO_MAPR, AFIO_MAPR_TIM4_REMAP_BIT, 1) );
 
     /// TODO:UART, I2C, SPI
 }
 
 /* Write the External Interrupt Configuration Register.
- * There are four of these registers, each of which configures
- * four EXTI interrupt lines.  Each line is represented by four bits, which
- * indicate which GPIO the line is connected to.  When the register is
- * written, the changes are propagated to the EXTI module.
+ * There are four of these registers, each of which configures four EXTI interrupt lines.
+ * Each line is represented by four bits, which indicate which GPIO the line is connected to.
+ * When the register is written, the changes are propagated to the EXTI module.
  */
-static void stm32_afio_AFIO_EXTICR_write(Stm32Afio *s, unsigned index, uint32_t new_value, bool init)
+static void stm32_afio_AFIO_EXTICR_write( Stm32Afio *s, unsigned index, uint32_t exticr, bool init )
 {
-    int i;
+    if( !init && s->AFIO_EXTICR[index] == exticr ) return;
+
     unsigned exti_line;
     unsigned start;
     unsigned old_gpio_index, new_gpio_index;
 
-    assert(index < AFIO_EXTICR_COUNT);
+    assert( index < AFIO_EXTICR_COUNT );
 
-    /* Loop through the four EXTI lines controlled by this register. */
-    for(i = 0; i < AFIO_EXTI_PER_CR; i++) {
-        /* For each line, notify the EXTI module.  This shouldn't
-         * happen often, so we update all four, even if they all don't
-         * change. */
+    for( int i=0; i<AFIO_EXTI_PER_CR; i++ ) // Loop through the four EXTI lines controlled by this register.
+    {
         exti_line = (index * AFIO_EXTI_PER_CR) + i;
         start = i * 4;
 
-        if(!init) {
-            old_gpio_index = (s->AFIO_EXTICR[index] >> start) & 0xf;
-            sysbus_connect_irq(SYS_BUS_DEVICE(s->gpio[old_gpio_index]),
-                               exti_line,
-                               NULL);
-        }
-        new_gpio_index = (new_value >> start) & 0xf;
-        sysbus_connect_irq(SYS_BUS_DEVICE(s->gpio[new_gpio_index]),
-                           exti_line,
-                           qdev_get_gpio_in(DEVICE(s->exti), exti_line));
-    }
+        old_gpio_index = (s->AFIO_EXTICR[index] >> start) & 0xF;
+        new_gpio_index = (exticr >> start) & 0xF;
 
-    s->AFIO_EXTICR[index] = new_value;
+        if( old_gpio_index != new_gpio_index ) // For each line that changed, notify the EXTI module.
+        {
+            sysbus_connect_irq( SYS_BUS_DEVICE(s->gpio[old_gpio_index]), exti_line, NULL );
+            sysbus_connect_irq( SYS_BUS_DEVICE(s->gpio[new_gpio_index]), exti_line, qdev_get_gpio_in(DEVICE(s->exti), exti_line) );
+        }
+        else if( init ) // Initial configuration
+            sysbus_connect_irq( SYS_BUS_DEVICE(s->gpio[new_gpio_index]), exti_line, qdev_get_gpio_in(DEVICE(s->exti), exti_line) );
+    }
+    s->AFIO_EXTICR[index] = exticr;
 }
 
 static uint64_t stm32_afio_read(void *opaque, hwaddr offset, unsigned size)
 {
     Stm32Afio *s = (Stm32Afio *)opaque;
 
-    stm32_rcc_check_periph_clk((Stm32Rcc *)s->stm32_rcc, STM32_AFIO_PERIPH);
-
     switch( offset ) {
         case AFIO_EVCR_OFFSET:    STM32_NOT_IMPL_REG(offset, size); break;
-        case AFIO_MAPR_OFFSET:    return stm32_afio_AFIO_MAPR_read(s);
+        case AFIO_MAPR_OFFSET:    return s->AFIO_MAPR;
         case AFIO_EXTICR1_OFFSET: return s->AFIO_EXTICR[0];
         case AFIO_EXTICR2_OFFSET: return s->AFIO_EXTICR[1];
         case AFIO_EXTICR3_OFFSET: return s->AFIO_EXTICR[2];
@@ -174,30 +148,16 @@ static void stm32_afio_write(void *opaque, hwaddr offset, uint64_t value, unsign
 {
     Stm32Afio *s = (Stm32Afio *)opaque;
 
-    stm32_rcc_check_periph_clk((Stm32Rcc *)s->stm32_rcc, STM32_AFIO_PERIPH);
+    if( !stm32_rcc_check_periph_clk( s->stm32_rcc, STM32_AFIO_PERIPH) ) return;
 
     switch (offset) {
-        case AFIO_EVCR_OFFSET:
-            STM32_NOT_IMPL_REG(offset, size);
-            break;
-        case AFIO_MAPR_OFFSET:
-            stm32_afio_AFIO_MAPR_write(s, value, false);
-            break;
-        case AFIO_EXTICR1_OFFSET:
-            stm32_afio_AFIO_EXTICR_write(s, 0, value, false);
-            break;
-        case AFIO_EXTICR2_OFFSET:
-            stm32_afio_AFIO_EXTICR_write(s, 1, value, false);
-            break;
-        case AFIO_EXTICR3_OFFSET:
-            stm32_afio_AFIO_EXTICR_write(s, 2, value, false);
-            break;
-        case AFIO_EXTICR4_OFFSET:
-            stm32_afio_AFIO_EXTICR_write(s, 3, value, false);
-            break;
-        default:
-            STM32_BAD_REG(offset, size);
-            break;
+        case AFIO_EVCR_OFFSET:    STM32_NOT_IMPL_REG(offset, size); break;
+        case AFIO_MAPR_OFFSET:    stm32_afio_AFIO_MAPR_write( s, value & 0x71FFFFF, false ); break;
+        case AFIO_EXTICR1_OFFSET: stm32_afio_AFIO_EXTICR_write( s, 0, value, false ); break;
+        case AFIO_EXTICR2_OFFSET: stm32_afio_AFIO_EXTICR_write( s, 1, value, false ); break;
+        case AFIO_EXTICR3_OFFSET: stm32_afio_AFIO_EXTICR_write( s, 2, value, false ); break;
+        case AFIO_EXTICR4_OFFSET: stm32_afio_AFIO_EXTICR_write( s, 3, value, false ); break;
+        default:                  STM32_BAD_REG(offset, size); break;
     }
 }
 
@@ -214,19 +174,10 @@ static void stm32_afio_reset(DeviceState *dev)
     Stm32Afio *s = STM32_AFIO(dev);
 
     stm32_afio_AFIO_MAPR_write(s, 0x00000000, true);
-    stm32_afio_AFIO_EXTICR_write(s, 0, 0x00000000, true);
-    stm32_afio_AFIO_EXTICR_write(s, 1, 0x00000000, true);
-    stm32_afio_AFIO_EXTICR_write(s, 2, 0x00000000, true);
-    stm32_afio_AFIO_EXTICR_write(s, 3, 0x00000000, true);
+    for( int i=0; i<AFIO_EXTICR_COUNT; ++i ) stm32_afio_AFIO_EXTICR_write( s, i, 0x00000000, true );
 }
 
 /* PUBLIC FUNCTIONS */
-
-uint32_t stm32_afio_get_periph_map(Stm32Afio *s, stm32_periph_t periph)
-{
-    return s->Remap[periph];
-}
-
 
 /* DEVICE INITIALIZATION */
 
@@ -237,8 +188,7 @@ static void stm32_afio_init(Object *obj)
 
     //s->stm32_rcc = (Stm32Rcc *)s->stm32_rcc_prop;
 
-    memory_region_init_io(&s->iomem, OBJECT(s), &stm32_afio_ops, s,
-                          "afio", 0x03ff);
+    memory_region_init_io(&s->iomem, OBJECT(s), &stm32_afio_ops, s,"afio", 0x03ff);
     sysbus_init_mmio(dev, &s->iomem);
 
     return ;
@@ -269,13 +219,13 @@ static void stm32_afio_instance_init(Object *obj)
 
     stm32_afio_init(obj);
     
-    add_gpio_link(s, 0, "gpio[a]");
-    add_gpio_link(s, 1, "gpio[b]");
-    add_gpio_link(s, 2, "gpio[c]");
-    add_gpio_link(s, 3, "gpio[d]");
-    add_gpio_link(s, 4, "gpio[e]");
-    add_gpio_link(s, 5, "gpio[f]");
-    add_gpio_link(s, 6, "gpio[g]");
+    add_gpio_link( s, 0, "gpio[a]");
+    add_gpio_link( s, 1, "gpio[b]");
+    add_gpio_link( s, 2, "gpio[c]");
+    add_gpio_link( s, 3, "gpio[d]");
+    add_gpio_link( s, 4, "gpio[e]");
+    add_gpio_link( s, 5, "gpio[f]");
+    add_gpio_link( s, 6, "gpio[g]");
 
     object_property_add_link(obj, "exti", TYPE_STM32_EXTI,
                                  (Object **)&s->exti,
