@@ -153,7 +153,10 @@ jobs:
         run: |
           set -euxo pipefail
           test -f ./configure
-          ./configure --target-list=xtensa-softmmu --extra-cflags="-fPIC ${{ env.SLIRP_CPPFLAGS }}" --extra-ldflags="${{ env.SLIRP_LDFLAGS }}" \
+          ./configure --target-list=xtensa-softmmu \
+            --meson="-Dsafestack=disabled" \
+            --extra-cflags="-fPIC ${{ env.SLIRP_CPPFLAGS }}" \
+            --extra-ldflags="${{ env.SLIRP_LDFLAGS }}" \
             ${SLIRP_FLAG} \
             --enable-sdl \
             --enable-capstone \
@@ -190,14 +193,18 @@ jobs:
 
       # ===== Injetar shims somente após o setup do Meson =====
       - name: Injetar shims via meson configure
-        shell: msys2 {0}
+        shell: msys2 {0
+        }
         run: |
           set -euo pipefail
+          # Garante o SafeStack desabilitado (necessário com GCC no MinGW)
+          meson configure build -Dsafestack=disabled
           # Adiciona include forçado do header em TODOS os TUs
           meson configure build -Dc_args="${CFLAGS} -include /tmp/ci_shims.h"
           # Força linkar a lib estática dos shims
           meson configure build -Dc_link_args="/tmp/libci_shims.a"
           meson configure build
+
 
       - name: Build (ninja com captura de stdout/stderr)
         shell: msys2 {0}
