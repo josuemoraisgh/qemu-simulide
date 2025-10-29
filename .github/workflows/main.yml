@@ -193,8 +193,7 @@ jobs:
 
       # ===== Injetar shims somente após o setup do Meson =====
       - name: Injetar shims via meson configure
-        shell: msys2 {0
-        }
+        shell: msys2 {0}
         run: |
           set -euo pipefail
           # Garante o SafeStack desabilitado (necessário com GCC no MinGW)
