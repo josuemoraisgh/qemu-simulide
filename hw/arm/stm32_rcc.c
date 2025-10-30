@@ -782,20 +782,13 @@ static void stm32_rcc_hclk_upd_irq_handler(void *opaque, int n, int level)
 
 /* PUBLIC FUNCTIONS */
 
-void stm32_rcc_check_periph_clk(Stm32Rcc *s, stm32_periph_t periph)
+bool stm32_rcc_check_periph_clk(Stm32Rcc *s, stm32_periph_t periph)
 {
     Clk clk = s->PERIPHCLK[periph];
 
-    assert(clk != NULL);
+    if( !clk ) return false;
 
-    if(!clktree_is_enabled(clk)) {
-        /* I assume writing to a peripheral register while the peripheral clock
-         * is disabled is a bug and give a warning to unsuspecting programmers.
-         * When I made this mistake on real hardware the write had no effect.
-         */
-        stm32_hw_warn("Warning: You are attempting to use the %s peripheral while "
-                 "its clock is disabled.\n", stm32_periph_name(periph));
-    }
+    return clktree_is_enabled( clk );
 }
 
 void stm32_rcc_set_periph_clk_irq( Stm32Rcc *s, stm32_periph_t periph, qemu_irq periph_irq)

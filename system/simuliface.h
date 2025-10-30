@@ -42,6 +42,7 @@ enum arm32Actions{
     ARM_GPIO_OUT = 1,
     ARM_GPIO_CRx,
     ARM_GPIO_IN,
+    ARM_ALT_OUT,
 };
 
 enum simAction{

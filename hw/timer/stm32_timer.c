@@ -18,6 +18,13 @@
  * You should have received a copy of the GNU General Public License along
  * with this program; if not, see <http://www.gnu.org/licenses/>.
  */
+
+/*
+ * Modified by Santiago Gonzalez 2025
+ */
+
+#include <math.h>
+
 #include "hw/arm/stm32.h"
 #include "migration/vmstate.h"
 #include "hw/sysbus.h"
@@ -25,6 +32,8 @@
 #include "sysemu/sysemu.h"
 #include "hw/irq.h"
 #include "hw/ptimer.h"
+
+#include "../system/simuliface.h"
 
 
 /* DEFINITIONS*/
@@ -63,10 +72,38 @@
 #define CR1_CEN 1<<0
 #define CR1_OPM 1<<3
 
+#define STM32_TIM_SYNC "stm32_tim_sync"
+
 enum {
     TIMER_UP_COUNT   = 0,
     TIMER_DOWN_COUNT = 1
 };
+
+typedef struct Stm32Timer Stm32Timer;
+
+typedef struct Stm32Channel {
+
+    uint16_t CCR; // Capture/Compare register
+    uint8_t CCMR;
+
+    uint8_t CCS;
+    uint8_t OCM;
+
+    uint8_t IC_presc; // Input Capture Prescaler
+
+    uint8_t CCE;      // Input/Output Enable
+    uint8_t inverted; // Polarity
+
+    uint8_t number;
+
+    uint8_t ioPort;
+    uint8_t ioPin;
+    bool lastState;
+
+    Stm32Timer* parent_timer;
+    QEMUTimer   match_timer;
+
+} Stm32Channel;
 
 struct Stm32Timer {
 
@@ -84,50 +121,220 @@ struct Stm32Timer {
     //Stm32Gpio **stm32_gpio;
     //Stm32Afio *stm32_afio;
 
+    Stm32Channel channels[4];
+
     int id;
 
     uint8_t enabled;
     //int period;
-    uint8_t countMode;
+    uint8_t direction;
     //int itr;
     uint8_t oneShot;
     uint8_t bidirectional;
 
-    uint32_t frequency;
+    double frequency;
+    double ps_per_tick;
 
-    uint32_t cr1;
-    /* uint32_t cr2; Extended modes not supported */
-    /* uint32_t smcr; Slave mode not supported */
-    uint32_t dier;
-    uint32_t sr;
-    uint32_t egr;
-    uint32_t ccmr1;
-    uint32_t ccmr2;
-    uint32_t ccer;
-    /* uint32_t cnt; Handled by ptimer */
-    uint32_t psc;
-    uint32_t arr;
-    /* uint32_t rcr; Repetition count not supported */
-    uint32_t ccr1;
-    uint32_t ccr2;
-    uint32_t ccr3;
-    uint32_t ccr4;
-    /* uint32_t bdtr; Break and deadtime not supported */
-    /* uint32_t dcr;  DMA mode not supported */
-    /* uint32_t dmar; DMA mode not supported */
+    uint16_t cr1;
+    uint16_t cr2;  //Extended modes not supported
+    uint16_t smcr; //Slave mode not supported
+    uint16_t dier;
+    uint16_t sr;
+    uint16_t egr;
+    uint16_t ccmr1;
+    uint16_t ccmr2;
+    uint16_t ccer;
+    /* uint16_t cnt; //Handled by ptimer */
+    uint16_t psc;
+    uint16_t arr;
+    uint16_t rcr; //Repetition count not supported
+
+    uint16_t bdtr; //Break and deadtime not supported
+    uint16_t dcr;  //DMA mode not supported
+    uint16_t dmar; //DMA mode not supported
 };
 
-#define STM32_TIM_SYNC "stm32_tim_sync"
+// -------------------------------------------------------
+// -------------------------------------------------------
+
+static inline void Stm32_channel_setPin( Stm32Channel* ch, bool state )
+{
+    m_arena->simuAction = ARM_ALT_OUT;
+    m_arena->data16 = state;   // 1 bit per pin: 1 = High
+    m_arena->data8  = ch->ioPort;  // We have to send Port number, PortA = 1
+    m_arena->mask8  = ch->ioPin;
+
+    doAction();
+}
+
+static void Stm32_channel_match_event( void* opaque )
+{
+    Stm32Channel* ch = (Stm32Channel*) opaque;
+
+    bool state = ch->lastState;
+
+    switch( ch->OCM ) {
+    case 0: return;  // Frozen: No output
+    case 1: state = true;   break;   // OCxREF High at match
+    case 2: state = false;  break;   // OCxREF Low  at match
+    case 3: state = !state; break;   // OCxREF Toggle at match
+    case 4:                 return;  // OCxREF is forced low
+    case 5:                 return;  // OCxREF is forced high
+    case 6: {                        // PWM mode 1, Birirectional: High below math
+        if( ch->parent_timer->direction == TIMER_UP_COUNT )
+            state = true;
+        else state = false;
+    }break;
+    case 7: {                        // PWM mode 2, Birirectional: Low below math
+        if( ch->parent_timer->direction == TIMER_UP_COUNT )
+            state = false;
+        else state = true;
+    }break;
+    default: break;
+    }
+    ch->lastState = state;
+    //printf("Stm32_channel_match_event %i OCM: %i at %lu\n", ch->number, ch->OCM, getQemu_ps() );fflush( stdout );
+
+    Stm32_channel_setPin( ch, state );
+}
+
+static void Stm32_channel_ovf_event( Stm32Channel* ch )
+{
+    /// TODO: set Interrupt flag
+
+    double match_count;
+    Stm32Timer* p_timer = ch->parent_timer;
+
+    if( p_timer->direction == TIMER_UP_COUNT ) match_count = ch->CCR;
+    else                                       match_count = p_timer->arr - ch->CCR;
+
+    double nextTime_ns = match_count * p_timer->ps_per_tick / 1000; // Convert to ns
+
+    if( nextTime_ns == 0 ) return;
+
+    double time = getQemu_ps();
+    time = time/1000 +  nextTime_ns;
+    timer_mod_ns( &ch->match_timer, time );    // Schedule next match event
+
+    //printf("Stm32_channel_ovf_event %i %lu\n", ch->number, getQemu_ps() );fflush( stdout );
+    //if( !ch->CCE ) return;
+
+    bool state = ch->lastState;
+    switch( ch->OCM ) {
+    case 0: return;  // Frozen: No output
+    case 1: state = false; break;   // OCxREF High at match
+    case 2: state = true;  break;   // OCxREF Low  at match
+    case 3:                return;  // OCxREF Toggle at match, Nothing on OVF
+    case 4:                return;  // OCxREF is forced low
+    case 5:                return;  // OCxREF is forced high
+    case 6: {                        // PWM mode 1, Birirectional: High below math
+        if( ch->parent_timer->direction == TIMER_UP_COUNT )
+            state = false;
+        else state = true;
+    }break;
+    case 7: {                        // PWM mode 2, Birirectional: Low below math
+        if( ch->parent_timer->direction == TIMER_UP_COUNT )
+            state = true;
+        else state = false;
+    }break;
+    default: break;
+    }
+    Stm32_channel_setPin( ch, state );
+}
+
+static inline void Stm32_channel_write_CCER( Stm32Channel* ch, uint8_t ccer )
+{
+    uint8_t cce = ccer & 0b01; // Input/Output Enable
+    if( ch->CCE != cce )
+    {
+        ch->CCE = cce;
+        /// Set actual pin out enabled
+    }
+    ch->inverted = ccer & 0b10; // Polarity
+}
+
+static inline void Stm32_channel_write_CCMR( Stm32Channel* ch, uint8_t ccmr )
+{
+    if( ch->CCMR == ccmr ) return;
+    ch->CCMR = ccmr;
+
+    uint8_t ccs = ccmr & 0b11;
+    if( ch->CCS != ccs )
+    {
+        ch->CCS = ccs;
+
+        switch( ccs ) {
+        case 0: break; // Output
+        case 1: break; // Input TI1
+        case 2: break; // Input TI2
+        case 3: break; // Input TRC
+        default: break;
+        }
+    }
+
+    if( ccs ) // Input
+    {
+        uint8_t icpsc = (ccmr & 0b00001100) >> 2;
+        ch->IC_presc = pow( 2, icpsc );
+
+        //uint8_t icf   = (ccmr & 0b11110000) >> 4;  // Filter not implemented
+    }
+    else      // Output
+    {
+        //uint8_t ocfe = (ccmr & 0b00000100) >> 2; // Output compare fast enable
+        //uint8_t ocpe = (ccmr & 0b00001000) >> 3; // Output compare preload enable
+        uint8_t ocm  = (ccmr & 0b01110000) >> 4;
+        if( ch->OCM != ocm )
+        {                    // OCxREF: signal from which OCx and OCxN are derived
+
+            /// FIXME: should we initialize pin staes in all cases?
+
+            ch->OCM = ocm;
+            switch( ocm ) {
+            case 0:                                    break;   // Frozen: No output
+            case 1:                                    break;   // OCxREF High at match
+            case 2:                                    break;   // OCxREF Low  at match
+            case 3:                                    break;   // OCxREF Toggle at match
+            case 4: Stm32_channel_setPin( ch, false ); break;   // OCxREF is forced low
+            case 5: Stm32_channel_setPin( ch, true );  break;   // OCxREF is forced high
+            case 6:                                    break;   // PWM mode 1, Birirectional: High below math
+            case 7:                                    break;   // PWM mode 2, Birirectional: Low below math
+            default: break;
+            }
+        }
+        //uint8_t occe = (ccmr & 0b10000000) >> 7;
+    }
+
+    //printf("Stm32_channel_write_CCMR ch: %i %i %i\n", ch->number, ch->CCS, ch->OCM);fflush( stdout );
+}
+
+static void Stm32_channel_init( Stm32Channel* ch, Stm32Timer* timer, uint8_t ch_number )
+{
+    timer_init_full( &ch->match_timer, NULL, QEMU_CLOCK_VIRTUAL, 1, 0, Stm32_channel_match_event, ch );
+
+    ch->number = ch_number;
+    ch->parent_timer = timer;
+    // Initialize variables
+}
+
+// -------------------------------------------------------
+// -------------------------------------------------------
+
 
 static void stm32_timer_updt_freq( Stm32Timer *s )
 {
     // Why do we need to multiply the frequency by 2? This is how real hardware behaves.
-    uint32_t clk_freq = 2*stm32_rcc_get_periph_freq(s->stm32_rcc, s->periph) / (s->psc + 1);
-    if( s->frequency == clk_freq ) return;
-    s->frequency = clk_freq;
+    double freq = 2*(double)stm32_rcc_get_periph_freq(s->stm32_rcc, s->periph) / (double)(s->psc + 1);
 
-    if(clk_freq != 0) {
-        ptimer_set_freq( s->timer, clk_freq );
+    if( s->frequency == freq ) return;
+    s->frequency = freq;
+
+    double ps_tick = (double)freq/1000000;
+    ps_tick = 1000000/ps_tick;
+    s->ps_per_tick = ps_tick;
+
+    if( freq != 0 ) {
+        ptimer_set_freq( s->timer, freq );
         //printf( "%s Update freq = %d presc = %d\n", stm32_periph_name(s->periph), clk_freq, (s->psc + 1) );
     }
 }
@@ -146,20 +353,23 @@ static uint32_t stm32_timer_get_count( Stm32Timer *s )
 {
     uint64_t cnt = ptimer_get_count( s->timer );
 
-    if (s->countMode == TIMER_UP_COUNT) return s->arr - cnt;
+    if (s->direction == TIMER_UP_COUNT) return s->arr - cnt;
     else                                return cnt;
 }
 
-static void stm32_timer_set_count_safe( Stm32Timer *s, uint32_t cnt )
+static void stm32_timer_set_count( Stm32Timer *s, uint16_t cnt )
 {
     ptimer_transaction_begin( s->timer );
-    if (s->countMode == TIMER_UP_COUNT) ptimer_set_count( s->timer, s->arr - cnt);
+    if (s->direction == TIMER_UP_COUNT) ptimer_set_count( s->timer, s->arr - cnt);
     else                                ptimer_set_count( s->timer, cnt );
     ptimer_transaction_commit( s->timer );
+
+    DPRINTF("%s cnt = %x\n", stm32_periph_name(s->periph), stm32_timer_get_count(s));
 }
 
 static void stm32_timer_update_UIF( Stm32Timer *s, uint8_t value )
 {
+    //printf("stm32_timer_update_UIF %i\n", s->sr & 0x1);
     if( !(s->sr & 0x1) )
     {
         //s->sr &= ~0x1; /* update interrupt flag in status reg */
@@ -169,10 +379,14 @@ static void stm32_timer_update_UIF( Stm32Timer *s, uint8_t value )
     }
 }
 
-static void stm32_timer_tick(void *opaque) // overflow
+static void stm32_timer_ovf( void *opaque ) // overflow
 {
-    Stm32Timer *s = (Stm32Timer *)opaque;
+    Stm32Timer *s = (Stm32Timer*)opaque;
+
+    if( !s->enabled ) return;
     DPRINTF("%s Alarm raised\n", stm32_periph_name(s->periph));
+
+    for( int i=0; i<4; ++i ) Stm32_channel_ovf_event( &s->channels[i] );
 
     //static uint64_t lastTime=0;
     //uint64_t qemuTime_ns = qemu_clock_get_ns( QEMU_CLOCK_VIRTUAL ); // ns
@@ -182,22 +396,17 @@ static void stm32_timer_tick(void *opaque) // overflow
     //lastTime = qemuTime_ns;
 
     //s->itr = 1;
-    stm32_timer_update_UIF(s, 1);
+    stm32_timer_update_UIF( s, 1 );
 
     //ptimer_set_count( s->timer, s->arr ); // Reset Qemu timer directly (it is count down)
 
     if( s->bidirectional )
     {
-        if( s->countMode == TIMER_UP_COUNT ) s->countMode = TIMER_DOWN_COUNT;
-        else                                 s->countMode = TIMER_UP_COUNT;
+        if( s->direction == TIMER_UP_COUNT ) s->direction = TIMER_DOWN_COUNT;
+        else                                 s->direction = TIMER_UP_COUNT;
     }
 
-    if( s->oneShot ) // One shot
-    {
-        s->cr1 &= ~CR1_CEN;
-        //ptimer_stop( s->timer );
-    }
-    //else stm32_timer_update(s);
+    if( s->oneShot ) s->cr1 &= ~CR1_CEN; // One shot, clear Enable flag
 }
 
 static void stm32_timer_updt_period( Stm32Timer *s ) // Set overflow period
@@ -208,134 +417,147 @@ static void stm32_timer_updt_period( Stm32Timer *s ) // Set overflow period
     ptimer_transaction_commit( s->timer );
 }
 
-static void stm32_timer_write_CR1( Stm32Timer *s, uint64_t value )
+static inline void stm32_timer_write_CR1( Stm32Timer *s, uint64_t value )
 {
     s->cr1 = value & 0x3FF;
 
     uint8_t enabled = value & CR1_CEN;
     uint8_t oneShot = value & CR1_OPM;
 
-    //Can't switch from edge-aligned to center-aligned if enabled (CEN=1)
-    uint8_t CMS = (value & 0b1100000) >> 5;
-
-    switch( CMS ) {
-        case 0:
-            s->bidirectional = 0;
-            if( s->cr1 & 1<<4 ) s->countMode = TIMER_DOWN_COUNT; // dir bit
-            else                s->countMode = TIMER_UP_COUNT;
-            break;
-        case 1: //break;
-        case 2: //break;
-        case 3: s->bidirectional = 1; break;
-        default: break;
-    }
-
     if( s->enabled != enabled || s->oneShot != oneShot )
     {
         s->enabled = enabled;
         s->oneShot = oneShot;
+
+        if( !enabled ) //Can't switch from edge-aligned to center-aligned if enabled (CEN=1)
+        {
+            uint8_t CMS = (value & 0b1100000) >> 5;
+
+            switch( CMS ) {
+            case 0: s->bidirectional = 0; break;
+            case 1: //break;
+            case 2: //break;
+            case 3: s->bidirectional = 1; break;
+            default: break;
+            }
+        }
 
         ptimer_transaction_begin(s->timer);
         if( enabled ) ptimer_run( s->timer, s->oneShot ); // DPRINTF("%s Enabling timer\n", stm32_periph_name(s->periph));
         else          ptimer_stop( s->timer );            // DPRINTF("%s Disabling timer\n", stm32_periph_name(s->periph));
         ptimer_transaction_commit(s->timer);
     }
+    if( !s->bidirectional )
+    {
+        if( s->cr1 & 1<<4 ) s->direction = TIMER_DOWN_COUNT; // DIR bit
+        else                s->direction = TIMER_UP_COUNT;
+    }
     DPRINTF("%s cr1 = %x\n", stm32_periph_name(s->periph), s->cr1);
+}
+
+static inline void stm32_timer_write_CCER( Stm32Timer *s, uint16_t ccer )
+{
+    if( s->ccer == ccer ) return;
+    s->ccer = ccer;
+
+    for( int i=0; i<4; ++i )
+    {
+        Stm32_channel_write_CCER( &s->channels[i], ccer & 0x0F );
+        ccer >>= 4;
+    }
+    DPRINTF("%s ccer = %x\n", stm32_periph_name(s->periph), s->ccer);
 }
 
 static uint64_t stm32_timer_read(void *opaque, hwaddr offset, unsigned size)
 {
-    Stm32Timer *s = (Stm32Timer *)opaque;
+    Stm32Timer *s = (Stm32Timer*)opaque;
 
     uint64_t val = 0;
 
-    switch (offset) {
-    case TIMER_CR1_OFFSET:   val = s->cr1;   ; DPRINTF("%s cr1 = %x\n", stm32_periph_name(s->periph), s->cr1); break;
-    case TIMER_CR2_OFFSET:   val = 0;        ; qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: CR2 not supported"); break;
-    case TIMER_SMCR_OFFSET:  val = 0;        ; qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: SMCR not supported"); break;
-    case TIMER_DIER_OFFSET:  val = s->dier;  ; DPRINTF("%s dier = %x\n", stm32_periph_name(s->periph), s->dier); break;
-    case TIMER_SR_OFFSET:    val = s->sr;    ; DPRINTF("%s sr = %x\n", stm32_periph_name(s->periph), s->sr); break;
-    case TIMER_EGR_OFFSET:   val = 0;        ; qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: EGR write only"); break;
-    case TIMER_CCMR1_OFFSET: val = s->ccmr1; ; DPRINTF("%s ccmr1 = %x\n", stm32_periph_name(s->periph), s->ccmr1); break;
-    case TIMER_CCMR2_OFFSET: val = s->ccmr2; ; DPRINTF("%s ccmr2 = %x\n", stm32_periph_name(s->periph), s->ccmr2); break;
-    case TIMER_CCER_OFFSET:  val = s->ccer;  ; DPRINTF("%s ccer = %x\n", stm32_periph_name(s->periph), s->ccer); break;
-    case TIMER_CNT_OFFSET:   val = stm32_timer_get_count(s); ; DPRINTF("%s cnt = %x\n", stm32_periph_name(s->periph), stm32_timer_get_count(s)); break;
-    case TIMER_PSC_OFFSET:   val = s->psc;   ; DPRINTF("%s psc = %x\n", stm32_periph_name(s->periph), s->psc); break;
-    case TIMER_ARR_OFFSET:   val = s->arr;   ; DPRINTF("%s arr = %x\n", stm32_periph_name(s->periph), s->arr); break;
-    case TIMER_RCR_OFFSET:   val = 0;        ; qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: RCR not supported"); break;
-    case TIMER_CCR1_OFFSET:  val = s->ccr1;  ; DPRINTF("%s ccr1 = %x\n", stm32_periph_name(s->periph), s->ccr1); break;
-    case TIMER_CCR2_OFFSET:  val = s->ccr2;  ; DPRINTF("%s ccr2 = %x\n", stm32_periph_name(s->periph), s->ccr2); break;
-    case TIMER_CCR3_OFFSET:  val = s->ccr3;  ; DPRINTF("%s ccr3 = %x\n", stm32_periph_name(s->periph), s->ccr3); break;
-    case TIMER_CCR4_OFFSET:  val = s->ccr4;  ; DPRINTF("%s ccr4 = %x\n", stm32_periph_name(s->periph), s->ccr4); break;
-    case TIMER_BDTR_OFFSET:  val = 0;        ; qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: BDTR not supported"); break;
-    case TIMER_DCR_OFFSET:   val = 0;        ; qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: DCR not supported"); break;
-    case TIMER_DMAR_OFFSET:  val = 0;        ; qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: DMAR not supported"); break;
-    default:
-        qemu_log_mask(LOG_GUEST_ERROR, "stm32_read: Bad offset 0x%x\n", (int)offset);
-        break;
+    switch( offset )
+    {
+    case TIMER_CR1_OFFSET:   val = s->cr1;                    break; //DPRINTF("%s cr1 = %x\n", stm32_periph_name(s->periph), s->cr1); break;
+    case TIMER_CR2_OFFSET:   val = s->cr2;                    break; //qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: CR2 not supported"); break;
+    case TIMER_SMCR_OFFSET:  val = s->smcr;                   break; //qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: SMCR not supported"); break;
+    case TIMER_DIER_OFFSET:  val = s->dier;                   break; //DPRINTF("%s dier = %x\n", stm32_periph_name(s->periph), s->dier); break;
+    case TIMER_SR_OFFSET:    val = s->sr;                     break; //DPRINTF("%s sr = %x\n", stm32_periph_name(s->periph), s->sr); break;
+    case TIMER_EGR_OFFSET:   val = s->egr;                    break; //qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: EGR write only"); break;
+    case TIMER_CCMR1_OFFSET: val = s->ccmr1;                  break; //DPRINTF("%s ccmr1 = %x\n", stm32_periph_name(s->periph), s->ccmr1); break;
+    case TIMER_CCMR2_OFFSET: val = s->ccmr2;                  break; //DPRINTF("%s ccmr2 = %x\n", stm32_periph_name(s->periph), s->ccmr2); break;
+    case TIMER_CCER_OFFSET:  val = s->ccer;                   break; //DPRINTF("%s ccer = %x\n", stm32_periph_name(s->periph), s->ccer); break;
+    case TIMER_CNT_OFFSET:   val = stm32_timer_get_count(s);  break; //DPRINTF("%s cnt = %x\n", stm32_periph_name(s->periph), stm32_timer_get_count(s)); break;
+    case TIMER_PSC_OFFSET:   val = s->psc;                    break; //DPRINTF("%s psc = %x\n", stm32_periph_name(s->periph), s->psc); break;
+    case TIMER_ARR_OFFSET:   val = s->arr;                    break; //DPRINTF("%s arr = %x\n", stm32_periph_name(s->periph), s->arr); break;
+    case TIMER_RCR_OFFSET:   val = s->rcr;                    break; //qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: RCR not supported"); break;
+    case TIMER_CCR1_OFFSET:  val = s->channels[0].CCR;        break; //DPRINTF("%s ccr1 = %x\n", stm32_periph_name(s->periph), s->ccr1); break;
+    case TIMER_CCR2_OFFSET:  val = s->channels[1].CCR;        break; //DPRINTF("%s ccr2 = %x\n", stm32_periph_name(s->periph), s->ccr2); break;
+    case TIMER_CCR3_OFFSET:  val = s->channels[2].CCR;        break; //DPRINTF("%s ccr3 = %x\n", stm32_periph_name(s->periph), s->ccr3); break;
+    case TIMER_CCR4_OFFSET:  val = s->channels[3].CCR;        break; //DPRINTF("%s ccr4 = %x\n", stm32_periph_name(s->periph), s->ccr4); break;
+    case TIMER_BDTR_OFFSET:  val = s->bdtr;                   break; //qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: BDTR not supported"); break;
+    case TIMER_DCR_OFFSET:   val = s->dcr;                    break; //qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: DCR not supported"); break;
+    case TIMER_DMAR_OFFSET:  val = s->dmar;                   break; //qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: DMAR not supported"); break;
+    default:                                                  break; //qemu_log_mask(LOG_GUEST_ERROR, "stm32_read: Bad offset 0x%x\n", (int)offset); break;
     }
     return val;
 }
 
-static void stm32_timer_write(void * opaque, hwaddr offset, uint64_t value, unsigned size)
+static void stm32_timer_write( void * opaque, hwaddr offset, uint64_t value, unsigned size )
 {
-    Stm32Timer *s = (Stm32Timer *)opaque;
-    //uint32_t clk_freq;
+    Stm32Timer *s = (Stm32Timer*)opaque;
 
-    switch (offset) {
-    case TIMER_CR1_OFFSET: stm32_timer_write_CR1( s, value ); break;
-    case TIMER_CR2_OFFSET: /*s->cr2 = value & 0xF8;*/ qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: CR2 not supported"); break;
-    case TIMER_SMCR_OFFSET: qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: SMCR not supported"); break;
-    case TIMER_DIER_OFFSET: s->dier = value & 0x5F5F; DPRINTF("%s dier = %x\n", stm32_periph_name(s->periph), s->dier); break;
-    case TIMER_SR_OFFSET:
-        s->sr ^= (value ^ 0xFFFF);
-        s->sr &= 0x1eFF;
-        stm32_timer_update_UIF(s, s->sr & 0x1); DPRINTF("%s sr = %x\n", stm32_periph_name(s->periph), s->sr);
-        break;
-    case TIMER_EGR_OFFSET: s->egr = value & 0x1E; DPRINTF("%s egr = %x\n", stm32_periph_name(s->periph), s->egr);
-        if (value & 0x40) s->sr |= 0x40; // TG bit
-        if (value & 0x1)  stm32_timer_updt_period( s ); /* UG bit - reload count */
-        break;
-    case TIMER_CCMR1_OFFSET: s->ccmr1 = value & 0xFFFF; DPRINTF("%s ccmr1 = %x\n", stm32_periph_name(s->periph), s->ccmr1);
-        break;
-    case TIMER_CCMR2_OFFSET: s->ccmr2 = value & 0xFFFF; DPRINTF("%s ccmr2 = %x\n", stm32_periph_name(s->periph), s->ccmr2);
-        break;
-    case TIMER_CCER_OFFSET:
-        s->ccer = value & 0xFFFF; DPRINTF("%s ccer = %x\n", stm32_periph_name(s->periph), s->ccer);
-        /// Enable PWM: qemu_set_irq( s->sync_irq[0], (0xE00000| ((s->ccer  & 0x3FFFF )<<2)));
-        break;
-    case TIMER_CNT_OFFSET: stm32_timer_set_count_safe( s, value & 0xFFFF ); DPRINTF("%s cnt = %x\n", stm32_periph_name(s->periph), stm32_timer_get_count(s));
-        break;
-    case TIMER_PSC_OFFSET: s->psc = value & 0xFFFF; DPRINTF("%s psc = %x\n", stm32_periph_name(s->periph), s->psc);
-        ptimer_transaction_begin(s->timer);
-        stm32_timer_updt_freq(s);
-        ptimer_transaction_commit(s->timer);
-        //clk_freq = 2 * stm32_rcc_get_periph_freq(s->stm32_rcc, s->periph) / ((s->psc + 1)*(s->arr + 1));
-        /// Set PWM freq: qemu_set_irq( s->sync_irq[0], (0xD00000| ((clk_freq & 0x3FFFF )<<2)));
-        break;
-    case TIMER_ARR_OFFSET: s->arr = value & 0xFFFF; DPRINTF("%s arr = %x\n", stm32_periph_name(s->periph), s->arr);
-        stm32_timer_updt_period( s );
-        //clk_freq = 2 * stm32_rcc_get_periph_freq(s->stm32_rcc, s->periph) / ((s->psc + 1)*(s->arr + 1));
-        /// Set PWM freq: qemu_set_irq( s->sync_irq[0], (0xD00000| ((clk_freq & 0x3FFFF )<<2)));
-        break;
-    case TIMER_RCR_OFFSET: /*s->rcr = value & 0xff;*/qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: RCR not supported");
-        break;
-    case TIMER_CCR1_OFFSET: s->ccr1 = value & 0xFFFF; DPRINTF("%s ccr1 = %x\n", stm32_periph_name(s->periph), s->ccr1);
-        /// Set PWM duty: qemu_set_irq( s->sync_irq[0], (0xC00000| ((s->ccr1*100/s->arr)<<4) | (0<< 2)));
-        break;
-    case TIMER_CCR2_OFFSET: s->ccr2 = value & 0xFFFF; DPRINTF("%s ccr2 = %x\n", stm32_periph_name(s->periph), s->ccr2);
-        /// Set PWM duty: qemu_set_irq( s->sync_irq[0], (0xC00000| ((s->ccr2*100/s->arr)<<4) | (1<< 2)));
-        break;
-    case TIMER_CCR3_OFFSET: s->ccr3 = value & 0xFFFF; DPRINTF("%s ccr3 = %x\n", stm32_periph_name(s->periph), s->ccr3);
-        /// Set PWM duty: qemu_set_irq( s->sync_irq[0], (0xC00000| ((s->ccr3*100/s->arr)<<4) | (2<< 2)));
-        break;
-    case TIMER_CCR4_OFFSET: s->ccr4 = value & 0xFFFF; DPRINTF("%s ccr4 = %x\n", stm32_periph_name(s->periph), s->ccr4);
-        /// Set PWM duty: qemu_set_irq( s->sync_irq[0], (0xC00000| ((s->ccr4*100/s->arr)<<4) | (3<< 2)));
-        break;
-    case TIMER_BDTR_OFFSET: qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: BDTR not supported"); break;
-    case TIMER_DCR_OFFSET:  qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: DCR not supported"); break;
-    case TIMER_DMAR_OFFSET: qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: DMAR not supported"); break;
-    default:                qemu_log_mask(LOG_GUEST_ERROR, "stm32_read: Bad offset 0x%x\n", (int)offset); break;
+    switch( offset )
+    {
+    case TIMER_CR1_OFFSET:  stm32_timer_write_CR1( s, value );   break;
+    case TIMER_CR2_OFFSET:  s->cr2  = value & 0xF8;              qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: CR2 not supported"); break;
+    case TIMER_SMCR_OFFSET: s->smcr = value;                     qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: SMCR not supported"); break;
+    case TIMER_DIER_OFFSET: s->dier = value & 0x5F5F;            DPRINTF("%s dier = %x\n", stm32_periph_name(s->periph), s->dier); break;
+    case TIMER_SR_OFFSET:{
+            s->sr ^= (value ^ 0xFFFF);
+            s->sr &= 0x1eFF;                                     DPRINTF("%s sr = %x\n", stm32_periph_name(s->periph), s->sr);
+            stm32_timer_update_UIF(s, s->sr & 0x1);
+        }break;
+    case TIMER_EGR_OFFSET:{
+            uint16_t egr = value & 0x1E;
+            if( s->egr == egr ) return;
+            s->egr = egr;                                        DPRINTF("%s egr = %x\n", stm32_periph_name(s->periph), s->egr);
+            if (value & 0x40) s->sr |= 0x40;                     // TG bit
+            if (value & 0x1)  stm32_timer_updt_period( s );      // UG bit - reload count
+        } break;
+    case TIMER_CCMR1_OFFSET:{
+            uint16_t ccmr1 = value;
+            if( s->ccmr1 == ccmr1 ) return;
+            s->ccmr1 = ccmr1;                                    DPRINTF("%s ccmr1 = %x\n", stm32_periph_name(s->periph), s->ccmr1);
+            Stm32_channel_write_CCMR( &s->channels[0], ccmr1    );
+            Stm32_channel_write_CCMR( &s->channels[1], ccmr1>>8 );
+        }break;
+    case TIMER_CCMR2_OFFSET:{
+            uint16_t ccmr2 = value;
+            if( s->ccmr2 == ccmr2 ) return;
+            s->ccmr2 = ccmr2;                                    DPRINTF("%s ccmr2 = %x\n", stm32_periph_name(s->periph), s->ccmr2);
+            Stm32_channel_write_CCMR( &s->channels[2], ccmr2    );
+            Stm32_channel_write_CCMR( &s->channels[3], ccmr2>>8 );
+        }break;
+    case TIMER_CCER_OFFSET: stm32_timer_write_CCER( s, value );   break;
+    case TIMER_CNT_OFFSET:  stm32_timer_set_count( s, value );   break;
+    case TIMER_PSC_OFFSET:{
+            s->psc = value;                                      DPRINTF("%s psc = %x\n", stm32_periph_name(s->periph), s->psc);
+            ptimer_transaction_begin(s->timer);
+            stm32_timer_updt_freq(s);
+            ptimer_transaction_commit(s->timer);
+        }break;
+    case TIMER_ARR_OFFSET:{
+            s->arr = value;                                      DPRINTF("%s arr = %x\n", stm32_periph_name(s->periph), s->arr);
+            stm32_timer_updt_period( s );
+        }break;
+    case TIMER_RCR_OFFSET:  s->rcr = value;                      qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: RCR not supported"); break;
+    case TIMER_CCR1_OFFSET: s->channels[0].CCR = value;          DPRINTF("%s ccr1 = %x\n", stm32_periph_name(s->periph), s->channels[0].CCR); break;
+    case TIMER_CCR2_OFFSET: s->channels[1].CCR = value;          DPRINTF("%s ccr2 = %x\n", stm32_periph_name(s->periph), s->channels[1].CCR); break;
+    case TIMER_CCR3_OFFSET: s->channels[2].CCR = value;          DPRINTF("%s ccr3 = %x\n", stm32_periph_name(s->periph), s->channels[2].CCR); break;
+    case TIMER_CCR4_OFFSET: s->channels[3].CCR = value;          DPRINTF("%s ccr4 = %x\n", stm32_periph_name(s->periph), s->channels[3].CCR); break;
+    case TIMER_BDTR_OFFSET: s->bdtr = value;                     qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: BDTR not supported"); break;
+    case TIMER_DCR_OFFSET:  s->dcr  = value;                     qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: DCR not supported"); break;
+    case TIMER_DMAR_OFFSET: s->dmar = value;                     qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: DMAR not supported"); break;
+    default:                                                     qemu_log_mask(LOG_GUEST_ERROR, "stm32_read: Bad offset 0x%x\n", (int)offset); break;
     }
 }
 
@@ -366,7 +588,7 @@ static void stm32_timer_realize(DeviceState *dev, Error **errp)
     clk_irq = qemu_allocate_irqs( stm32_timer_clk_irq_handler, (void*)s, 1 );
     stm32_rcc_set_periph_clk_irq( s->stm32_rcc, s->periph, clk_irq[0] );
 
-    s->timer = ptimer_init(stm32_timer_tick, s, PTIMER_POLICY_LEGACY);
+    s->timer = ptimer_init(stm32_timer_ovf, s, PTIMER_POLICY_LEGACY);
                            //PTIMER_POLICY_WRAP_AFTER_ONE_PERIOD |
                            //PTIMER_POLICY_TRIGGER_ONLY_ON_DECREMENT |
                            //PTIMER_POLICY_NO_IMMEDIATE_RELOAD |
@@ -381,17 +603,15 @@ static void stm32_timer_realize(DeviceState *dev, Error **errp)
     s->ccer  = 0;
     s->psc   = 0;
     s->arr   = 0;
-    s->ccr1  = 0;
-    s->ccr2  = 0;
-    s->ccr3  = 0;
-    s->ccr4  = 0;
 
     s->enabled = 0;
     s->oneShot = 0;
 
     s->frequency = 0;
 
-    s->countMode = TIMER_UP_COUNT;
+    s->direction = TIMER_UP_COUNT;
+
+    for( int i=0; i<4; ++i ) Stm32_channel_init( &s->channels[i], s, i+1 );
 }
 
 static int stm32_timer_pre_save( void *opaque )
@@ -414,6 +634,57 @@ static int stm32_timer_post_load( void *opaque, int version_id )
     //stm32_timer_set_alarm(s);
     return 0;
 }
+//---------------------------------------------------------------------------
+
+void stm32_timer_remap( int number, uint8_t value )
+{
+    printf("stm32_timer_remap %i %i\n", number, value ); fflush( stdout );
+    Stm32Timer* timer = stm32_get_timer( number );
+    switch( number )
+    {
+    case 1: break;
+    case 2: break;
+    case 3:
+    {
+        switch ( value ) {
+        case 0:{       //00: No remap (CH1/PA6, CH2/PA7, CH3/PB0, CH4/PB1)
+            timer->channels[0].ioPort = 1;
+            timer->channels[0].ioPin  = 6;
+            timer->channels[1].ioPort = 1;
+            timer->channels[1].ioPin  = 7;
+            timer->channels[2].ioPort = 2;
+            timer->channels[2].ioPin  = 0;
+            timer->channels[3].ioPort = 2;
+            timer->channels[3].ioPin  = 1;
+        }break;
+        case 1: break; //01: Not used
+        case 2:{       //10: Partial remap (CH1/PB4, CH2/PB5, CH3/PB0, CH4/PB1)
+            timer->channels[0].ioPort = 2;
+            timer->channels[0].ioPin  = 4;
+            timer->channels[1].ioPort = 2;
+            timer->channels[1].ioPin  = 5;
+            timer->channels[2].ioPort = 2;
+            timer->channels[2].ioPin  = 0;
+            timer->channels[3].ioPort = 2;
+            timer->channels[3].ioPin  = 1;
+        }break;
+        case 3:{       //11: Full remap (CH1/PC6, CH2/PC7, CH3/PC8, CH4/PC9)
+            timer->channels[0].ioPort = 3;
+            timer->channels[0].ioPin  = 6;
+            timer->channels[1].ioPort = 3;
+            timer->channels[1].ioPin  = 7;
+            timer->channels[2].ioPort = 3;
+            timer->channels[2].ioPin  = 8;
+            timer->channels[3].ioPort = 3;
+            timer->channels[3].ioPin  = 9;
+        }break;
+        }
+    }break;
+    case 4: break;
+    case 5: break;
+    }
+}
+
 //void stm32_timer_set_gpio(Stm32Timer *tim, Stm32Gpio** gpio){
 //    tim->stm32_gpio = gpio;
 //}
@@ -429,23 +700,23 @@ void stm32_timer_set_id( Stm32Timer *tim, int tim_num ) {
 }
 //---------------------------------------------------------------------------
 
-void stm32_timer_action( Stm32Timer* timer );
-
-void stm32_timer_action( Stm32Timer* timer )
-{
-    //uint8_t action = m_arena->mask8;
-
-    //switch( action ) {
-    //case QTIMER_OVF:{
-    //    //static uint64_t lastTime = 0;
-    //    //uint64_t qemuTime = getQemu_ps();
-    //    //printf("                            OVF at time %lu\n",qemuTime-lastTime); fflush( stdout );
-    //    //lastTime = qemuTime;
-    //    stm32_timer_update_UIF( timer, 1);
-    //}break;
-    //default: break;
-    //}
-}
+//void stm32_timer_action( Stm32Timer* timer );
+//
+//void stm32_timer_action( Stm32Timer* timer )
+//{
+//    //uint8_t action = m_arena->mask8;
+//
+//    //switch( action ) {
+//    //case QTIMER_OVF:{
+//    //    //static uint64_t lastTime = 0;
+//    //    //uint64_t qemuTime = getQemu_ps();
+//    //    //printf("                            OVF at time %lu\n",qemuTime-lastTime); fflush( stdout );
+//    //    //lastTime = qemuTime;
+//    //    stm32_timer_update_UIF( timer, 1);
+//    //}break;
+//    //default: break;
+//    //}
+//}
 
 //---------------------------------------------------------------------------
 
