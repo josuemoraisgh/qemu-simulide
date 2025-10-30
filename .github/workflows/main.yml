@@ -130,7 +130,6 @@ jobs:
           gcc -m64 -c /tmp/ci_shims.c -o /tmp/ci_shims.o
           ar rcs /tmp/libci_shims.a /tmp/ci_shims.o
 
-      # === configure do QEMU (SEM --meson=...) ===
       - name: Configure (QEMU)
         shell: msys2 {0}
         env:
@@ -180,14 +179,13 @@ jobs:
             --enable-tcg --enable-system \
             --disable-werror
 
-      # === ajustes no Meson depois do configure ===
-      - name: Injetar flags via Meson (SafeStack + shims)
+      - name: Injetar flags via Meson (apenas c_args/c_link_args)
         shell: msys2 {0}
         env:
           CFLAGS: ${{ env.CFLAGS }}
         run: |
           set -euo pipefail
-          meson configure build -Dsafestack=disabled
+          # Não tocar em 'safestack' (sua versão não suporta)
           meson configure build -Dc_args="${CFLAGS} -include /tmp/ci_shims.h"
           meson configure build -Dc_link_args="/tmp/libci_shims.a"
           meson configure build
@@ -239,7 +237,7 @@ jobs:
           EXE_PATH="$( (find build -type f -name 'qemu-system-xtensa*.exe' -print -quit 2>/dev/null) || true )"
           if [ -z "${EXE_PATH}" ]; then
             echo "qemu-system-xtensa*.exe não encontrado em build/"
-            (find build -maxdepth 3 -type f -2>/dev/null | sed 's/^/  - /' || true)
+            (find build -maxdepth 3 -type f 2>/dev/null | sed 's/^/  - /' || true)
             exit 1
           fi
           BIN_DIR="$(dirname "${EXE_PATH}")"
