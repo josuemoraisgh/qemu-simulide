@@ -23,10 +23,8 @@ permissions:
 jobs:
   build-release:
     runs-on: windows-latest
-
     env:
       ZIP_NAME: qemu-simulide-windows-mingw64-${{ inputs.version }}.zip
-      # Flags do seu projeto (mantidas)
       CFLAGS: -Daction=simuAction -Dtime=simuTime
 
     steps:
@@ -35,7 +33,7 @@ jobs:
           git config --system core.longpaths true
           git config --global core.longpaths true
 
-      - name: Checkout (sem submódulos)
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: false
@@ -70,7 +68,6 @@ jobs:
         shell: msys2 {0}
         run: |
           which gcc && gcc --version
-          which cc || true
           which python3 && python3 --version
           which meson && meson --version
           which ninja && ninja --version
@@ -78,7 +75,7 @@ jobs:
           which nm && nm --version || true
           pkg-config --version || true
 
-      - name: Limpar variáveis que alteram o configure
+      - name: Limpar variáveis e diretórios de build
         shell: msys2 {0}
         run: |
           set -euxo pipefail
@@ -100,26 +97,21 @@ jobs:
             LF="$(pkg-config --libs "$SLIRP_PKG" || true)"
             echo "SLIRP_CPPFLAGS=${CF}" >> "$GITHUB_ENV"
             echo "SLIRP_LDFLAGS=${LF}" >> "$GITHUB_ENV"
-            echo "libslirp detectado ($SLIRP_PKG). Flags: ${CF} | ${LF}"
           else
             echo "SLIRP_FLAG=--disable-slirp" >> "$GITHUB_ENV"
             echo "SLIRP_CPPFLAGS=" >> "$GITHUB_ENV"
             echo "SLIRP_LDFLAGS=" >> "$GITHUB_ENV"
-            echo "libslirp NÃO detectado; slirp será desabilitado."
           fi
 
-      # ===== Sanidade do compilador (antes do configure) =====
       - name: Sanity do compilador (pré-configure)
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          which gcc
           echo 'int main(void){return 0;}' > /tmp/hello.c
           gcc -m64 /tmp/hello.c -o /tmp/hello.exe
           /tmp/hello.exe
-          echo "Sanity OK (gcc compila e executa)."
+          echo "Sanity OK"
 
-      # ===== Criar shims como biblioteca estática + header =====
       - name: Criar shims (protótipos + lib estática)
         shell: msys2 {0}
         run: |
@@ -131,32 +123,29 @@ jobs:
           void stm32_f103c8_timer_action(void);
           #endif
           EOF
-
           cat > /tmp/ci_shims.c << 'EOF'
           void stm32_f103c8_uart_action(void) {}
           void stm32_f103c8_timer_action(void) {}
           EOF
-
           gcc -m64 -c /tmp/ci_shims.c -o /tmp/ci_shims.o
           ar rcs /tmp/libci_shims.a /tmp/ci_shims.o
 
-          echo "Shims prontos: /tmp/ci_shims.h e /tmp/libci_shims.a"
-
-      # ===== Configure (gera build/ e headers). Sem injetar shims aqui =====
-      - name: Configure (conforme README)
+      # === configure do QEMU (SEM --meson=...) ===
+      - name: Configure (QEMU)
         shell: msys2 {0}
         env:
           PKG_CONFIG_PATH: /mingw64/lib/pkgconfig:/usr/lib/pkgconfig
           CC: gcc
           CFLAGS: ${{ env.CFLAGS }}
           SLIRP_FLAG: ${{ env.SLIRP_FLAG }}
+          SLIRP_CPPFLAGS: ${{ env.SLIRP_CPPFLAGS }}
+          SLIRP_LDFLAGS: ${{ env.SLIRP_LDFLAGS }}
         run: |
           set -euxo pipefail
           test -f ./configure
           ./configure --target-list=xtensa-softmmu \
-            --meson="-Dsafestack=disabled" \
-            --extra-cflags="-fPIC ${{ env.SLIRP_CPPFLAGS }}" \
-            --extra-ldflags="${{ env.SLIRP_LDFLAGS }}" \
+            --extra-cflags="-fPIC ${SLIRP_CPPFLAGS}" \
+            --extra-ldflags="${SLIRP_LDFLAGS}" \
             ${SLIRP_FLAG} \
             --enable-sdl \
             --enable-capstone \
@@ -191,21 +180,19 @@ jobs:
             --enable-tcg --enable-system \
             --disable-werror
 
-      # ===== Injetar shims somente após o setup do Meson =====
-      - name: Injetar shims via meson configure
+      # === ajustes no Meson depois do configure ===
+      - name: Injetar flags via Meson (SafeStack + shims)
         shell: msys2 {0}
+        env:
+          CFLAGS: ${{ env.CFLAGS }}
         run: |
           set -euo pipefail
-          # Garante o SafeStack desabilitado (necessário com GCC no MinGW)
           meson configure build -Dsafestack=disabled
-          # Adiciona include forçado do header em TODOS os TUs
           meson configure build -Dc_args="${CFLAGS} -include /tmp/ci_shims.h"
-          # Força linkar a lib estática dos shims
           meson configure build -Dc_link_args="/tmp/libci_shims.a"
           meson configure build
 
-
-      - name: Build (ninja com captura de stdout/stderr)
+      - name: Build (ninja com logs)
         shell: msys2 {0}
         env:
           CFLAGS: ${{ env.CFLAGS }}
@@ -252,20 +239,17 @@ jobs:
           EXE_PATH="$( (find build -type f -name 'qemu-system-xtensa*.exe' -print -quit 2>/dev/null) || true )"
           if [ -z "${EXE_PATH}" ]; then
             echo "qemu-system-xtensa*.exe não encontrado em build/"
-            (find build -maxdepth 3 -type f 2>/dev/null | sed 's/^/  - /' || true)
+            (find build -maxdepth 3 -type f -2>/dev/null | sed 's/^/  - /' || true)
             exit 1
           fi
           BIN_DIR="$(dirname "${EXE_PATH}")"
-          echo "BIN_DIR: ${BIN_DIR}"
           rm -rf bundle
           mkdir -p bundle
           cp -v "${BIN_DIR}"/qemu*.exe bundle/ || true
-
           if [ -d "pc-bios" ]; then
             mkdir -p bundle/pc-bios
             cp -r pc-bios/* bundle/pc-bios/ || true
           fi
-
           TMP_DEPS="$(mktemp)"; : > "${TMP_DEPS}"
           shopt -s nullglob
           for exe in bundle/*.exe; do
@@ -277,18 +261,14 @@ jobs:
             done
           fi
           rm -f "${TMP_DEPS}"
-
           for dll in \
             libwinpthread-1.dll libstdc++-6.dll libgcc_s_seh-1.dll \
             libglib-2.0-0.dll libgobject-2.0-0.dll libgmodule-2.0-0.dll libgthread-2.0-0.dll \
             libintl-8.dll libiconv-2.dll libpcre2-8-0.dll libpixman-1-0.dll \
-            libgcrypt-20.dll zlib1.dll \
-            SDL2.dll \
-            libcapstone.dll \
+            libgcrypt-20.dll zlib1.dll SDL2.dll libcapstone.dll \
           ; do
             [ -f "/mingw64/bin/$dll" ] && cp -n "/mingw64/bin/$dll" bundle/ || true
           done
-
           ls -al bundle || true
 
       - name: Gerar ZIP
