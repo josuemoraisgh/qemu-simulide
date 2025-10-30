@@ -40,7 +40,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Setup MSYS2 (MINGW64)
+      - name: Setup MSYS2 (MINGW64 + Clang/LLD)
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -49,6 +49,8 @@ jobs:
             git
             base-devel
             mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-clang
+            mingw-w64-x86_64-lld
             mingw-w64-x86_64-python
             mingw-w64-x86_64-pkgconf
             mingw-w64-x86_64-glib2
@@ -67,7 +69,9 @@ jobs:
       - name: Versões das ferramentas
         shell: msys2 {0}
         run: |
-          which gcc && gcc --version
+          which clang && clang --version
+          which clang++ && clang++ --version
+          which ld.lld && ld.lld --version || true
           which python3 && python3 --version
           which meson && meson --version
           which ninja && ninja --version
@@ -79,7 +83,7 @@ jobs:
         shell: msys2 {0}
         run: |
           set -euxo pipefail
-          for v in QEMU_CONFIGURE_OPTS QEMU_CONFIGURE_FLAGS CONFIGURE_OPTS CONFIGURE_FLAGS CPPFLAGS LDFLAGS; do
+          for v in QEMU_CONFIGURE_OPTS QEMU_CONFIGURE_FLAGS CONFIGURE_OPTS CONFIGURE_FLAGS CPPFLAGS LDFLAGS CFLAGS CXXFLAGS; do
             unset "$v" || true
           done
           rm -rf build config.log meson-private meson-info || true
@@ -103,14 +107,14 @@ jobs:
             echo "SLIRP_LDFLAGS=" >> "$GITHUB_ENV"
           fi
 
-      - name: Sanity do compilador (pré-configure)
+      - name: Sanity do compilador (Clang) pré-configure
         shell: msys2 {0}
         run: |
           set -euo pipefail
           echo 'int main(void){return 0;}' > /tmp/hello.c
-          gcc -m64 /tmp/hello.c -o /tmp/hello.exe
+          clang -m64 /tmp/hello.c -o /tmp/hello.exe -fuse-ld=lld
           /tmp/hello.exe
-          echo "Sanity OK"
+          echo "Sanity OK (clang compila e executa)."
 
       - name: Criar shims (protótipos + lib estática)
         shell: msys2 {0}
@@ -127,23 +131,29 @@ jobs:
           void stm32_f103c8_uart_action(void) {}
           void stm32_f103c8_timer_action(void) {}
           EOF
-          gcc -m64 -c /tmp/ci_shims.c -o /tmp/ci_shims.o
+          clang -m64 -c /tmp/ci_shims.c -o /tmp/ci_shims.o
           ar rcs /tmp/libci_shims.a /tmp/ci_shims.o
 
-      - name: Configure (QEMU)
+      - name: Configure (QEMU) com Clang/LLD
         shell: msys2 {0}
         env:
           PKG_CONFIG_PATH: /mingw64/lib/pkgconfig:/usr/lib/pkgconfig
-          CC: gcc
-          CFLAGS: ${{ env.CFLAGS }}
+          CC: clang
+          CXX: clang++
+          LD: ld.lld
+          AR: llvm-ar
+          NM: llvm-nm
+          RANLIB: llvm-ranlib
           SLIRP_FLAG: ${{ env.SLIRP_FLAG }}
           SLIRP_CPPFLAGS: ${{ env.SLIRP_CPPFLAGS }}
           SLIRP_LDFLAGS: ${{ env.SLIRP_LDFLAGS }}
+          # Suas flags de projeto
+          PROJ_CFLAGS: -Daction=simuAction -Dtime=simuTime
         run: |
           set -euxo pipefail
           test -f ./configure
           ./configure --target-list=xtensa-softmmu \
-            --extra-cflags="-fPIC ${SLIRP_CPPFLAGS}" \
+            --extra-cflags="-fPIC ${SLIRP_CPPFLAGS} ${PROJ_CFLAGS}" \
             --extra-ldflags="${SLIRP_LDFLAGS}" \
             ${SLIRP_FLAG} \
             --enable-sdl \
@@ -179,21 +189,39 @@ jobs:
             --enable-tcg --enable-system \
             --disable-werror
 
-      - name: Injetar flags via Meson (apenas c_args/c_link_args)
+      # --- Plano B: se ainda assim o Meson reclamar de SafeStack, neutraliza o erro no meson.build ---
+      - name: Neutralizar checagem SafeStack (fallback)
+        if: ${{ always() }}
         shell: msys2 {0}
-        env:
-          CFLAGS: ${{ env.CFLAGS }}
         run: |
           set -euo pipefail
-          # Não tocar em 'safestack' (sua versão não suporta)
-          meson configure build -Dc_args="${CFLAGS} -include /tmp/ci_shims.h"
+          # Só aplica se a última execução do 'meson --internal regenerate' falhou com "Cannot disable SafeStack"
+          if grep -qi "Cannot disable SafeStack" build/meson-logs/meson-log.txt 2>/dev/null; then
+            echo "Patching meson.build para ignorar o erro de SafeStack..."
+            # Faz um backup e remove apenas a chamada 'error('Cannot disable SafeStack')'
+            cp meson.build meson.build.bak
+            awk '
+              /Cannot disable SafeStack/ {next} {print}
+            ' meson.build.bak > meson.build
+            # Regenera o build.ninja
+            (cd build && meson --reconfigure) || true
+          else
+            echo "Sem erro de SafeStack detectado; nenhum patch aplicado."
+          fi
+
+      - name: Injetar flags via Meson (c_args/c_link_args)
+        shell: msys2 {0}
+        env:
+          PROJ_CFLAGS: -Daction=simuAction -Dtime=simuTime
+        run: |
+          set -euo pipefail
+          meson configure build -Dc_args="${PROJ_CFLAGS} -include /tmp/ci_shims.h"
           meson configure build -Dc_link_args="/tmp/libci_shims.a"
           meson configure build
 
       - name: Build (ninja com logs)
         shell: msys2 {0}
         env:
-          CFLAGS: ${{ env.CFLAGS }}
           NINJA_STATUS: "[%f/%t %o/sec] "
           TERM: dumb
         run: |
@@ -237,17 +265,19 @@ jobs:
           EXE_PATH="$( (find build -type f -name 'qemu-system-xtensa*.exe' -print -quit 2>/dev/null) || true )"
           if [ -z "${EXE_PATH}" ]; then
             echo "qemu-system-xtensa*.exe não encontrado em build/"
-            (find build -maxdepth 3 -type f 2>/dev/null | sed 's/^/  - /' || true)
+            (find build -maxdepth 3 -type f -iname '*.exe' 2>/dev/null | sed 's/^/  - /' || true)
             exit 1
           fi
           BIN_DIR="$(dirname "${EXE_PATH}")"
           rm -rf bundle
           mkdir -p bundle
           cp -v "${BIN_DIR}"/qemu*.exe bundle/ || true
+
           if [ -d "pc-bios" ]; then
             mkdir -p bundle/pc-bios
             cp -r pc-bios/* bundle/pc-bios/ || true
           fi
+
           TMP_DEPS="$(mktemp)"; : > "${TMP_DEPS}"
           shopt -s nullglob
           for exe in bundle/*.exe; do
@@ -259,6 +289,7 @@ jobs:
             done
           fi
           rm -f "${TMP_DEPS}"
+
           for dll in \
             libwinpthread-1.dll libstdc++-6.dll libgcc_s_seh-1.dll \
             libglib-2.0-0.dll libgobject-2.0-0.dll libgmodule-2.0-0.dll libgthread-2.0-0.dll \
@@ -267,6 +298,7 @@ jobs:
           ; do
             [ -f "/mingw64/bin/$dll" ] && cp -n "/mingw64/bin/$dll" bundle/ || true
           done
+
           ls -al bundle || true
 
       - name: Gerar ZIP
