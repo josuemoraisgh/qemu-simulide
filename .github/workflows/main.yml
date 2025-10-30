@@ -133,6 +133,19 @@ jobs:
           EOF
           clang -m64 -c /tmp/ci_shims.c -o /tmp/ci_shims.o
           ar rcs /tmp/libci_shims.a /tmp/ci_shims.o
+          
+      - name: MSYS2/MinGW deps (inclui LLVM)
+        shell: bash
+        run: |
+          set -euxo pipefail
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm --needed \
+            mingw-w64-x86_64-clang \
+            mingw-w64-x86_64-llvm \
+            mingw-w64-x86_64-binutils \
+            mingw-w64-x86_64-glib2 \
+            mingw-w64-x86_64-libslirp \
+            make python
 
       - name: Configure (QEMU) com Clang/LLD
         shell: msys2 {0}
