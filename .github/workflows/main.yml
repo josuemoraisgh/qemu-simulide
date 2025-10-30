@@ -1,4 +1,4 @@
-name: MinGW Build & Release (qemu-simulide)
+name: MinGW Build & Release (qemu-simulide - Clang/LLD)
 
 on:
   workflow_dispatch:
@@ -23,8 +23,10 @@ permissions:
 jobs:
   build-release:
     runs-on: windows-latest
+
     env:
       ZIP_NAME: qemu-simulide-windows-mingw64-${{ inputs.version }}.zip
+      # Flags do seu projeto (mantidas)
       CFLAGS: -Daction=simuAction -Dtime=simuTime
 
     steps:
@@ -33,7 +35,7 @@ jobs:
           git config --system core.longpaths true
           git config --global core.longpaths true
 
-      - name: Checkout
+      - name: Checkout (sem submódulos)
         uses: actions/checkout@v4
         with:
           submodules: false
@@ -51,6 +53,7 @@ jobs:
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-clang
             mingw-w64-x86_64-lld
+            mingw-w64-x86_64-llvm
             mingw-w64-x86_64-python
             mingw-w64-x86_64-pkgconf
             mingw-w64-x86_64-glib2
@@ -71,19 +74,20 @@ jobs:
         run: |
           which clang && clang --version
           which clang++ && clang++ --version
-          which ld.lld && ld.lld --version || true
+          which ld.lld && ld.lld --version
           which python3 && python3 --version
           which meson && meson --version
           which ninja && ninja --version
           which ntldd && ntldd --version
-          which nm && nm --version || true
+          which llvm-nm && llvm-nm --version || true
           pkg-config --version || true
+          echo "MSYSTEM=$MSYSTEM"
 
-      - name: Limpar variáveis e diretórios de build
+      - name: Limpar variáveis que alteram o configure
         shell: msys2 {0}
         run: |
           set -euxo pipefail
-          for v in QEMU_CONFIGURE_OPTS QEMU_CONFIGURE_FLAGS CONFIGURE_OPTS CONFIGURE_FLAGS CPPFLAGS LDFLAGS CFLAGS CXXFLAGS; do
+          for v in QEMU_CONFIGURE_OPTS QEMU_CONFIGURE_FLAGS CONFIGURE_OPTS CONFIGURE_FLAGS CPPFLAGS LDFLAGS; do
             unset "$v" || true
           done
           rm -rf build config.log meson-private meson-info || true
@@ -101,21 +105,25 @@ jobs:
             LF="$(pkg-config --libs "$SLIRP_PKG" || true)"
             echo "SLIRP_CPPFLAGS=${CF}" >> "$GITHUB_ENV"
             echo "SLIRP_LDFLAGS=${LF}" >> "$GITHUB_ENV"
+            echo "libslirp detectado ($SLIRP_PKG). Flags: ${CF} | ${LF}"
           else
             echo "SLIRP_FLAG=--disable-slirp" >> "$GITHUB_ENV"
             echo "SLIRP_CPPFLAGS=" >> "$GITHUB_ENV"
             echo "SLIRP_LDFLAGS=" >> "$GITHUB_ENV"
+            echo "libslirp NÃO detectado; slirp será desabilitado."
           fi
 
-      - name: Sanity do compilador (Clang) pré-configure
+      - name: Sanity do compilador (pré-configure, Clang/LLD)
         shell: msys2 {0}
         run: |
           set -euo pipefail
+          which clang
           echo 'int main(void){return 0;}' > /tmp/hello.c
-          clang -m64 /tmp/hello.c -o /tmp/hello.exe -fuse-ld=lld
+          clang -m64 -fuse-ld=lld /tmp/hello.c -o /tmp/hello.exe
           /tmp/hello.exe
           echo "Sanity OK (clang compila e executa)."
 
+      # ===== Criar shims como biblioteca estática + header =====
       - name: Criar shims (protótipos + lib estática)
         shell: msys2 {0}
         run: |
@@ -127,26 +135,18 @@ jobs:
           void stm32_f103c8_timer_action(void);
           #endif
           EOF
+
           cat > /tmp/ci_shims.c << 'EOF'
           void stm32_f103c8_uart_action(void) {}
           void stm32_f103c8_timer_action(void) {}
           EOF
-          clang -m64 -c /tmp/ci_shims.c -o /tmp/ci_shims.o
-          ar rcs /tmp/libci_shims.a /tmp/ci_shims.o
-          
-      - name: MSYS2/MinGW deps (inclui LLVM)
-        shell: bash
-        run: |
-          set -euxo pipefail
-          pacman -Syu --noconfirm
-          pacman -S --noconfirm --needed \
-            mingw-w64-x86_64-clang \
-            mingw-w64-x86_64-llvm \
-            mingw-w64-x86_64-binutils \
-            mingw-w64-x86_64-glib2 \
-            mingw-w64-x86_64-libslirp \
-            make python
 
+          clang -m64 -c /tmp/ci_shims.c -o /tmp/ci_shims.o
+          llvm-ar rcs /tmp/libci_shims.a /tmp/ci_shims.o
+
+          echo "Shims prontos: /tmp/ci_shims.h e /tmp/libci_shims.a"
+
+      # ===== Configure (gera build/ e headers). Sem parâmetros 'meson=' =====
       - name: Configure (QEMU) com Clang/LLD
         shell: msys2 {0}
         env:
@@ -157,17 +157,14 @@ jobs:
           AR: llvm-ar
           NM: llvm-nm
           RANLIB: llvm-ranlib
+          CFLAGS: ${{ env.CFLAGS }}
           SLIRP_FLAG: ${{ env.SLIRP_FLAG }}
-          SLIRP_CPPFLAGS: ${{ env.SLIRP_CPPFLAGS }}
-          SLIRP_LDFLAGS: ${{ env.SLIRP_LDFLAGS }}
-          # Suas flags de projeto
-          PROJ_CFLAGS: -Daction=simuAction -Dtime=simuTime
         run: |
           set -euxo pipefail
           test -f ./configure
           ./configure --target-list=xtensa-softmmu \
-            --extra-cflags="-fPIC ${SLIRP_CPPFLAGS} ${PROJ_CFLAGS}" \
-            --extra-ldflags="${SLIRP_LDFLAGS}" \
+            --extra-cflags="-fPIC ${{ env.SLIRP_CPPFLAGS }}" \
+            --extra-ldflags="${{ env.SLIRP_LDFLAGS }}" \
             ${SLIRP_FLAG} \
             --enable-sdl \
             --enable-capstone \
@@ -202,39 +199,22 @@ jobs:
             --enable-tcg --enable-system \
             --disable-werror
 
-      # --- Plano B: se ainda assim o Meson reclamar de SafeStack, neutraliza o erro no meson.build ---
-      - name: Neutralizar checagem SafeStack (fallback)
-        if: ${{ always() }}
+      # ===== Injetar shims após o setup do Meson =====
+      - name: Injetar shims via meson configure (include+link)
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          # Só aplica se a última execução do 'meson --internal regenerate' falhou com "Cannot disable SafeStack"
-          if grep -qi "Cannot disable SafeStack" build/meson-logs/meson-log.txt 2>/dev/null; then
-            echo "Patching meson.build para ignorar o erro de SafeStack..."
-            # Faz um backup e remove apenas a chamada 'error('Cannot disable SafeStack')'
-            cp meson.build meson.build.bak
-            awk '
-              /Cannot disable SafeStack/ {next} {print}
-            ' meson.build.bak > meson.build
-            # Regenera o build.ninja
-            (cd build && meson --reconfigure) || true
-          else
-            echo "Sem erro de SafeStack detectado; nenhum patch aplicado."
-          fi
-
-      - name: Injetar flags via Meson (c_args/c_link_args)
-        shell: msys2 {0}
-        env:
-          PROJ_CFLAGS: -Daction=simuAction -Dtime=simuTime
-        run: |
-          set -euo pipefail
-          meson configure build -Dc_args="${PROJ_CFLAGS} -include /tmp/ci_shims.h"
+          # NÃO usar opção inexistente de 'safestack'; só ajustamos args.
+          # Adiciona include forçado do header em TODOS os TUs
+          meson configure build -Dc_args="${CFLAGS} -include /tmp/ci_shims.h"
+          # Força linkar a lib estática dos shims
           meson configure build -Dc_link_args="/tmp/libci_shims.a"
           meson configure build
 
-      - name: Build (ninja com logs)
+      - name: Build (ninja com captura de stdout/stderr)
         shell: msys2 {0}
         env:
+          CFLAGS: ${{ env.CFLAGS }}
           NINJA_STATUS: "[%f/%t %o/sec] "
           TERM: dumb
         run: |
@@ -262,11 +242,11 @@ jobs:
             echo "::warning::libcommon.a não encontrado; seguindo."
             exit 0
           fi
-          if nm -g "$LIBA" | grep -q ' stm32_f103c8_uart_action$'; then
+          if llvm-nm -g "$LIBA" | grep -q ' stm32_f103c8_uart_action$'; then
             echo "OK: símbolo presente em $(basename "$LIBA")"
           else
             echo "::error::stm32_f103c8_uart_action NÃO encontrado em $(basename "$LIBA")."
-            nm -g "$LIBA" | tail -n 150 || true
+            llvm-nm -g "$LIBA" | tail -n 150 || true
             exit 86
           fi
 
@@ -278,10 +258,11 @@ jobs:
           EXE_PATH="$( (find build -type f -name 'qemu-system-xtensa*.exe' -print -quit 2>/dev/null) || true )"
           if [ -z "${EXE_PATH}" ]; then
             echo "qemu-system-xtensa*.exe não encontrado em build/"
-            (find build -maxdepth 3 -type f -iname '*.exe' 2>/dev/null | sed 's/^/  - /' || true)
+            (find build -maxdepth 3 -type f 2>/dev/null | sed 's/^/  - /' || true)
             exit 1
           fi
           BIN_DIR="$(dirname "${EXE_PATH}")"
+          echo "BIN_DIR: ${BIN_DIR}"
           rm -rf bundle
           mkdir -p bundle
           cp -v "${BIN_DIR}"/qemu*.exe bundle/ || true
@@ -307,7 +288,9 @@ jobs:
             libwinpthread-1.dll libstdc++-6.dll libgcc_s_seh-1.dll \
             libglib-2.0-0.dll libgobject-2.0-0.dll libgmodule-2.0-0.dll libgthread-2.0-0.dll \
             libintl-8.dll libiconv-2.dll libpcre2-8-0.dll libpixman-1-0.dll \
-            libgcrypt-20.dll zlib1.dll SDL2.dll libcapstone.dll \
+            libgcrypt-20.dll zlib1.dll \
+            SDL2.dll \
+            libcapstone.dll \
           ; do
             [ -f "/mingw64/bin/$dll" ] && cp -n "/mingw64/bin/$dll" bundle/ || true
           done
