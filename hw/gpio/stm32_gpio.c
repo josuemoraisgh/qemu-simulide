@@ -52,6 +52,7 @@ struct Stm32Gpio {
     uint32_t GPIOx_ODR;
 
     uint16_t in;
+    uint8_t id;
 
     qemu_irq in_irq[STM32_GPIO_PIN_COUNT]; /* IRQs which relay input pin changes to other STM32 peripherals */
 };
@@ -70,8 +71,9 @@ static void stm32_gpio_in_trigger( void *opaque, int irq, int level )
     // Update internal pin state.
     s->in &= ~(1 << pin);
     s->in |= (level ? 1 : 0) << pin;
-
+    //printf("stm32_gpio_in_trigger PORT%c %i %i\n", 'A'+s->id, pin, level );fflush( stdout );
     qemu_set_irq( s->in_irq[pin], level ); // Propagate the trigger to the input IRQs.
+    //printf("stm32_gpio_in_trigger IRQs fired\n");fflush( stdout );
 }
 
 /* REGISTER IMPLEMENTATION */
@@ -200,7 +202,7 @@ static void stm32_gpio_reset( DeviceState *dev ) // only outputs and config are 
 static void stm32_gpio_init( Object *obj )
 {
     SysBusDevice *dev= SYS_BUS_DEVICE( obj );
-    unsigned pin;
+
     Stm32Gpio *s = STM32_GPIO(dev);
 
     //s->stm32_rcc = (Stm32Rcc *)s->stm32_rcc_prop;
@@ -210,7 +212,7 @@ static void stm32_gpio_init( Object *obj )
 
     qdev_init_gpio_in(DEVICE(dev), stm32_gpio_in_trigger, STM32_GPIO_PIN_COUNT);
 
-    for( pin=0; pin<STM32_GPIO_PIN_COUNT; pin++ )
+    for( int pin=0; pin<STM32_GPIO_PIN_COUNT; pin++ )
         sysbus_init_irq( dev, &s->in_irq[pin] );
 
     return ;
@@ -224,6 +226,9 @@ static void stm32_gpio_realize( DeviceState *dev, Error **errp )
 void stm32_gpio_set_rcc( Stm32Gpio *gpio, Stm32Rcc* rcc )
 {
     gpio->stm32_rcc = rcc;
+}
+void stm32_gpio_set_id(Stm32Gpio *gpio, int gpio_num) {
+    gpio->id = gpio_num;
 }
 
 static Property stm32_gpio_properties[] = {

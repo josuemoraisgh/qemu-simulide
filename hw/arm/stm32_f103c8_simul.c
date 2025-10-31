@@ -61,6 +61,7 @@ typedef struct
    DeviceState *tim5; 
    DeviceState *adc1;
    DeviceState *adc2;
+   //DeviceState *exti;
 } Stm32_F103c8_Mcu;
 
 Stm32_F103c8_Mcu* mcu;
@@ -96,9 +97,11 @@ void stm32_f103c8_gpio_in_action(void)
     uint8_t pin    = m_arena->mask8;
     uint16_t state = m_arena->data16;
 
+    //printf("stm32_f103c8_gpio_in_action %i %i %i\n", port, pin, state );fflush( stdout );
+
     int irqNumber = port*16+pin;
-    if( state ) qemu_irq_raise( mcu->pin_irq[irqNumber] );
-    else        qemu_irq_lower( mcu->pin_irq[irqNumber] );
+    assert( mcu->pin_irq[irqNumber] );
+    qemu_set_irq( mcu->pin_irq[irqNumber], state );
 }
 
 Stm32Timer* stm32_get_timer( int number )
@@ -169,6 +172,7 @@ static void stm32_f103c8_init( MachineState *machine )
    mcu->tim5   = DEVICE( object_resolve_path("/machine/stm32/timer[5]", NULL) );
    mcu->adc1   = DEVICE( object_resolve_path("/machine/stm32/adc[1]"  , NULL) );
    mcu->adc2   = DEVICE( object_resolve_path("/machine/stm32/adc[2]"  , NULL) );
+   //mcu->exti   = DEVICE( object_resolve_path("/machine/stm32/exti"  , NULL) );
 
    assert( mcu->gpio_a );
    assert( mcu->gpio_b );
@@ -189,6 +193,7 @@ static void stm32_f103c8_init( MachineState *machine )
    assert( mcu->tim5 );
    assert( mcu->adc1 );
    assert( mcu->adc2 );
+   //assert( mcu->exti );
 
    /* Connect RS232 to UART 1 */
    //stm32_uart_connect( (Stm32Uart *)mcu->uart1, serial_hd(0)/*, 0*/ );
@@ -226,6 +231,8 @@ static void stm32_f103c8_init( MachineState *machine )
    start += 16;
    for( int pin=0; pin<16; ++pin )
        mcu->pin_irq[start+pin] = qdev_get_gpio_in( mcu->gpio_d, pin );
+
+   for( int pin=0; pin<16*4; ++pin ) assert( mcu->pin_irq[pin] );
 
    armv7m_load_kernel( ARM_CPU(first_cpu), machine->kernel_filename, 0, FLASH_SIZE );
 }

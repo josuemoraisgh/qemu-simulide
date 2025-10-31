@@ -74,13 +74,12 @@ static void stm32_exti_trigger(Stm32Exti *s, int line)
     }
 }
 
-/* We will assume that this handler will only be called if the pin actually
- * changed state. */
+/* We will assume that this handler will only be called if the pin actually changed state. */
 static void stm32_exti_gpio_in_handler(void *opaque, int n, int level)
 {
     Stm32Exti *s = (Stm32Exti *)opaque;
     unsigned pin = n;
-
+//printf("stm32_exti_gpio_in_handler %i %i\n", pin, level );fflush( stdout );
     assert(pin < STM32_GPIO_PIN_COUNT);
 
     /* Check the level - if it is rising, then trigger an interrupt if the
@@ -92,7 +91,6 @@ static void stm32_exti_gpio_in_handler(void *opaque, int n, int level)
         stm32_exti_trigger(s, pin);
     }
 }
-
 
 
 /* REGISTER IMPLEMENTATION */
@@ -113,9 +111,7 @@ static void update_TSR_bit(Stm32Exti *s, uint32_t *tsr_register, unsigned pos, u
     *tsr_register = deposit32(*tsr_register, pos, 1, new_bit_value);
 }
 
-/* Update the Pending Register.  This will trigger an interrupt if a bit is
- * set.
- */
+/* Update the Pending Register.  This will trigger an interrupt if a bit is set. */
 static void stm32_exti_change_EXTI_PR_bit(Stm32Exti *s, unsigned pos, unsigned new_bit_value)
 {
     unsigned old_bit_value;
@@ -133,30 +129,14 @@ static void stm32_exti_change_EXTI_PR_bit(Stm32Exti *s, unsigned pos, unsigned n
          */
         if(!new_bit_value) s->EXTI_SWIER &= ~BIT(pos);
 
-        /* Update the IRQ for this EXTI line.  Some lines share the same
-         * NVIC IRQ.
-         */
-        if(pos <= 4) {
-            /* EXTI0 - EXTI4 each have their own NVIC IRQ */
-            qemu_set_irq(s->irq[pos], new_bit_value);
-        } else if(pos <= 9) {
-            /* EXTI5 - EXTI9 share an NVIC IRQ */
-            qemu_set_irq(s->irq[5], new_bit_value);
-        } else if(pos <= 15) {
-            /* EXTI10 - EXTI15 share an NVIC IRQ */
-            qemu_set_irq(s->irq[6], new_bit_value);
-        } else if(pos == 16) {
-            /* PVD IRQ */
-            qemu_set_irq(s->irq[7], new_bit_value);
-        } else if(pos == 17) {
-            /* RTCAlarm IRQ */
-            qemu_set_irq(s->irq[8], new_bit_value);
-        } else if(pos == 18) {
-            /* OTG_FS_WKUP IRQ */
-            qemu_set_irq(s->irq[9], new_bit_value);
-        } else {
-            assert(false);
-        }
+        /* Update the IRQ for this EXTI line.  Some lines share the same NVIC IRQ. */
+        if     ( pos <= 4  ) qemu_set_irq(s->irq[pos], new_bit_value);/* EXTI0 - EXTI4 each have their own NVIC IRQ */
+        else if( pos <= 9  ) qemu_set_irq(s->irq[5], new_bit_value);/* EXTI5 - EXTI9 share an NVIC IRQ */
+        else if( pos <= 15 ) qemu_set_irq(s->irq[6], new_bit_value);/* EXTI10 - EXTI15 share an NVIC IRQ */
+        else if( pos == 16 ) qemu_set_irq(s->irq[7], new_bit_value);/* PVD IRQ */
+        else if( pos == 17 ) qemu_set_irq(s->irq[8], new_bit_value);/* RTCAlarm IRQ */
+        else if( pos == 18 ) qemu_set_irq(s->irq[9], new_bit_value);/* OTG_FS_WKUP IRQ */
+        else  assert(false);
 
         /* Update the register. */
         s->EXTI_PR = deposit32(s->EXTI_PR, pos, 1, new_bit_value);
@@ -273,11 +253,11 @@ static void stm32_exti_init(Object *obj)
     memory_region_init_io(&s->iomem, OBJECT(s), &stm32_exti_ops, s, "exti", 0x03ff);
     sysbus_init_mmio(dev, &s->iomem);
 
-    for( int i=0; i<EXTI_IRQ_COUNT; i++ )
-        sysbus_init_irq(dev, &s->irq[i]);
-
     /* Create the handlers to handle GPIO input pin changes. */
     qdev_init_gpio_in(DEVICE(dev), stm32_exti_gpio_in_handler, STM32_GPIO_PIN_COUNT);
+
+    for( int i=0; i<EXTI_IRQ_COUNT; i++ )
+        sysbus_init_irq(dev, &s->irq[i]);
 
     return ;
 }
