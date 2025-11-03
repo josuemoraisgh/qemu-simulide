@@ -75,7 +75,7 @@ struct Stm32Afio {
 
 /* REGISTER IMPLEMENTATION */
 
-static void stm32_afio_AFIO_MAPR_write( Stm32Afio *s, uint32_t mapr, bool init )
+static void stm32_afio_MAPR_write( Stm32Afio *s, uint32_t mapr, bool init )
 {
     if( !init && s->AFIO_MAPR == mapr ) return;
     s->AFIO_MAPR = mapr;
@@ -99,7 +99,7 @@ static void stm32_afio_AFIO_MAPR_write( Stm32Afio *s, uint32_t mapr, bool init )
  * Each line is represented by four bits, which indicate which GPIO the line is connected to.
  * When the register is written, the changes are propagated to the EXTI module.
  */
-static void stm32_afio_AFIO_EXTICR_write( Stm32Afio *s, unsigned index, uint32_t exticr, bool init )
+static void stm32_afio_EXTICR_write( Stm32Afio *s, unsigned index, uint16_t exticr, bool init )
 {
     if( !init && s->AFIO_EXTICR[index] == exticr ) return;
 
@@ -108,7 +108,7 @@ static void stm32_afio_AFIO_EXTICR_write( Stm32Afio *s, unsigned index, uint32_t
     unsigned old_gpio_index, new_gpio_index;
 
     assert( index < AFIO_EXTICR_COUNT );
-
+//printf("stm32_afio_EXTICR_write %i %i\n", index, init );fflush( stdout );
     for( int i=0; i<AFIO_EXTI_PER_CR; i++ ) // Loop through the four EXTI lines controlled by this register.
     {
         exti_line = (index * AFIO_EXTI_PER_CR) + i;
@@ -116,7 +116,7 @@ static void stm32_afio_AFIO_EXTICR_write( Stm32Afio *s, unsigned index, uint32_t
 
         old_gpio_index = (s->AFIO_EXTICR[index] >> start) & 0xF;
         new_gpio_index = (exticr >> start) & 0xF;
-
+//printf("stm32_afio_EXTICR_write PORT%c EXTI%i\n", 'A'+new_gpio_index, exti_line );fflush( stdout );
         if( old_gpio_index != new_gpio_index ) // For each line that changed, notify the EXTI module.
         {
             sysbus_connect_irq( SYS_BUS_DEVICE(s->gpio[old_gpio_index]), exti_line, NULL );
@@ -152,11 +152,11 @@ static void stm32_afio_write(void *opaque, hwaddr offset, uint64_t value, unsign
 
     switch (offset) {
         case AFIO_EVCR_OFFSET:    STM32_NOT_IMPL_REG(offset, size); break;
-        case AFIO_MAPR_OFFSET:    stm32_afio_AFIO_MAPR_write( s, value & 0x71FFFFF, false ); break;
-        case AFIO_EXTICR1_OFFSET: stm32_afio_AFIO_EXTICR_write( s, 0, value, false ); break;
-        case AFIO_EXTICR2_OFFSET: stm32_afio_AFIO_EXTICR_write( s, 1, value, false ); break;
-        case AFIO_EXTICR3_OFFSET: stm32_afio_AFIO_EXTICR_write( s, 2, value, false ); break;
-        case AFIO_EXTICR4_OFFSET: stm32_afio_AFIO_EXTICR_write( s, 3, value, false ); break;
+        case AFIO_MAPR_OFFSET:    stm32_afio_MAPR_write( s, value & 0x71FFFFF, false ); break;
+        case AFIO_EXTICR1_OFFSET: stm32_afio_EXTICR_write( s, 0, value, false ); break;
+        case AFIO_EXTICR2_OFFSET: stm32_afio_EXTICR_write( s, 1, value, false ); break;
+        case AFIO_EXTICR3_OFFSET: stm32_afio_EXTICR_write( s, 2, value, false ); break;
+        case AFIO_EXTICR4_OFFSET: stm32_afio_EXTICR_write( s, 3, value, false ); break;
         default:                  STM32_BAD_REG(offset, size); break;
     }
 }
@@ -173,8 +173,8 @@ static void stm32_afio_reset(DeviceState *dev)
 {
     Stm32Afio *s = STM32_AFIO(dev);
 
-    stm32_afio_AFIO_MAPR_write(s, 0x00000000, true);
-    for( int i=0; i<AFIO_EXTICR_COUNT; ++i ) stm32_afio_AFIO_EXTICR_write( s, i, 0x00000000, true );
+    stm32_afio_MAPR_write( s, 0x00000000, true );
+    for( int i=0; i<AFIO_EXTICR_COUNT; ++i ) stm32_afio_EXTICR_write( s, i, 0x00000000, true );
 }
 
 /* PUBLIC FUNCTIONS */
@@ -213,7 +213,7 @@ static void add_gpio_link(Stm32Afio *s, int gpio_index, const char *link_name)
                                  OBJ_PROP_LINK_STRONG);
 }
 
-static void stm32_afio_instance_init(Object *obj)
+static void stm32_afio_instance_init( Object *obj )
 {
     Stm32Afio *s = STM32_AFIO(obj);
 

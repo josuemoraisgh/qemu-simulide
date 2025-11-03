@@ -49,6 +49,7 @@ enum simAction{
     SIM_I2C=10,
     SIM_USART,
     SIM_TIMER,
+    SIM_GPIO_IN,
     SIM_EVENT=1<<7,
 };
 

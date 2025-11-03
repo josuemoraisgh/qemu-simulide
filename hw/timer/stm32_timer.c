@@ -638,7 +638,7 @@ static int stm32_timer_post_load( void *opaque, int version_id )
 
 void stm32_timer_remap( int number, uint8_t value )
 {
-    printf("stm32_timer_remap %i %i\n", number, value ); fflush( stdout );
+    //printf("stm32_timer_remap %i %i\n", number, value ); fflush( stdout );
     Stm32Timer* timer = stm32_get_timer( number );
     switch( number )
     {

@@ -185,7 +185,7 @@ static void stm32_create_uart_dev(Object *stm32_container,
   stm32_uart_set_rcc( STM32_UART(uart_dev), STM32_RCC(rcc_dev) );
   ///stm32_uart_set_gpio( STM32_UART(uart_dev), (Stm32Gpio **)(gpio_dev) );
   ///stm32_uart_set_afio( STM32_UART(uart_dev), STM32_AFIO(afio_dev) );
-  stm32_uart_set_id( STM32_UART(uart_dev),uart_num );
+  stm32_uart_set_id( STM32_UART(uart_dev), uart_num );
   snprintf( child_name, sizeof(child_name), "uart[%i]", uart_num );
 
   object_property_add_child(stm32_container, child_name, OBJECT(uart_dev));
@@ -469,6 +469,7 @@ static void stm32f103_soc_realize( DeviceState *dev_soc, Error **errp )
     QDEV_PROP_SET_PERIPH_T(gpio_dev[i], "periph", periph);
     // qdev_prop_set_ptr(gpio_dev[i], "stm32_rcc", rcc_dev);
     stm32_gpio_set_rcc(STM32_GPIO(gpio_dev[i]), STM32_RCC(rcc_dev));
+    stm32_gpio_set_id( STM32_GPIO(gpio_dev[i]), i );
 
     snprintf(child_name, sizeof(child_name), "gpio[%c]", 'a' + i);
     object_property_add_child(stm32_container, child_name, OBJECT(gpio_dev[i]));
@@ -495,8 +496,7 @@ static void stm32f103_soc_realize( DeviceState *dev_soc, Error **errp )
   sysbus_connect_irq( exti_busdev, 5, qdev_get_gpio_in( armv7m, STM32_EXTI9_5_IRQ ));
   sysbus_connect_irq( exti_busdev, 6, qdev_get_gpio_in( armv7m, STM32_EXTI15_10_IRQ ));
   sysbus_connect_irq( exti_busdev, 7, qdev_get_gpio_in( armv7m, STM32_PVD_IRQ ));
-  // sysbus_connect_irq(exti_busdev, 8,
-  // qdev_get_gpio_in(armv7m,STM32_RTCAlarm_IRQ));
+  // sysbus_connect_irq(exti_busdev, 8, qdev_get_gpio_in(armv7m,STM32_RTCAlarm_IRQ));
   sysbus_connect_irq( exti_busdev, 9, qdev_get_gpio_in(armv7m, STM32_OTG_FS_WKUP_IRQ));
 
   DeviceState *afio_dev = qdev_new(TYPE_STM32_AFIO);

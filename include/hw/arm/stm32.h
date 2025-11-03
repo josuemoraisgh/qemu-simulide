@@ -392,6 +392,7 @@ void stm32_timer_set_id( Stm32Timer *tim, int tim_num );
 void stm32_rtc_set_rcc(Stm32Rtc *rtc, Stm32Rcc* rcc);
 
 void stm32_gpio_set_rcc(Stm32Gpio *gpio, Stm32Rcc* rcc);
+void stm32_gpio_set_id(Stm32Gpio *gpio, int gpio_num);
 
 void stm32_dac_set_gpio(Stm32Dac *dac, Stm32Gpio** gpio);
 void stm32_dac_set_rcc(Stm32Dac *dac, Stm32Rcc* rcc);

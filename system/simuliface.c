@@ -88,6 +88,7 @@ void doAction(void)
             case SIM_I2C: break;
             case SIM_USART: stm32_f103c8_uart_action(); break;
             case SIM_TIMER: break;//stm32_f103c8_timer_action(); break;
+            case SIM_GPIO_IN: stm32_f103c8_gpio_in_action(); break;
             default: break;
             }
             m_arena->qemuAction = 0;
