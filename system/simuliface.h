@@ -43,6 +43,7 @@ enum arm32Actions{
     ARM_GPIO_CRx,
     ARM_GPIO_IN,
     ARM_ALT_OUT,
+    ARM_REMAP
 };
 
 enum simAction{
@@ -88,7 +89,6 @@ uint64_t getQemu_ps(void);
 
 //bool waitEvent(void);
 void doAction(void);
-void stm32_f103c8_uart_action(void);
 
 int simuMain( int argc, char** argv );
 
