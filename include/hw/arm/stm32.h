@@ -361,7 +361,7 @@ typedef struct stm32_spi_state stm32_spi_state;
 
 
 /* STM32 MICROCONTROLLER - GENERAL */
-typedef struct Stm32 Stm32;
+//typedef struct Stm32 Stm32;
 
 /* Initialize the STM32 microcontroller.  Returns arrays
  * of GPIOs and UARTs so that connections can be made. */
@@ -383,6 +383,7 @@ void stm32_iwdg_set_rcc(Stm32Iwdg *iwdg, Stm32Rcc* rcc);
 void stm32_uart_set_rcc(Stm32Uart *uart, Stm32Rcc* rcc);
 ///void stm32_uart_set_afio(Stm32Uart *uart, Stm32Afio* afio);
 void stm32_uart_set_id(Stm32Uart *uart, int uart_num);
+void stm32_uart_action(void);
 
 ///void stm32_timer_set_gpio(Stm32Timer *tim, Stm32Gpio** gpio);
 void stm32_timer_set_rcc(Stm32Timer *tim, Stm32Rcc* rcc);
@@ -393,6 +394,7 @@ void stm32_rtc_set_rcc(Stm32Rtc *rtc, Stm32Rcc* rcc);
 
 void stm32_gpio_set_rcc(Stm32Gpio *gpio, Stm32Rcc* rcc);
 void stm32_gpio_set_id(Stm32Gpio *gpio, int gpio_num);
+void stm32_gpio_in_action(void);
 
 void stm32_dac_set_gpio(Stm32Dac *dac, Stm32Gpio** gpio);
 void stm32_dac_set_rcc(Stm32Dac *dac, Stm32Rcc* rcc);

@@ -29,6 +29,7 @@
 #include "sysemu/sysemu.h"
 #include "sysemu/cpu-timers.h"
 #include "hw/irq.h"
+#include "hw/arm/stm32.h"
 
 // ------------------------------------------------
 // -------- ARENA ---------------------------------
@@ -86,9 +87,9 @@ void doAction(void)
             switch( m_arena->qemuAction )
             {
             case SIM_I2C: break;
-            case SIM_USART: stm32_f103c8_uart_action(); break;
-            case SIM_TIMER: break;//stm32_f103c8_timer_action(); break;
-            case SIM_GPIO_IN: stm32_f103c8_gpio_in_action(); break;
+            case SIM_USART: stm32_uart_action(); break;
+            case SIM_TIMER: break;//stm32_timer_action(); break;
+            case SIM_GPIO_IN: stm32_gpio_in_action(); break;
             default: break;
             }
             m_arena->qemuAction = 0;
