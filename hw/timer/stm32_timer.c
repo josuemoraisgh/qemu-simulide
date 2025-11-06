@@ -640,6 +640,8 @@ void stm32_timer_remap( int number, uint8_t value )
 {
     //printf("stm32_timer_remap %i %i\n", number, value ); fflush( stdout );
     Stm32Timer* timer = stm32_get_timer( number );
+    if( !timer ) return;
+
     switch( number )
     {
     case 1:{

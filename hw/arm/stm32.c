@@ -19,6 +19,7 @@
  * with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "stm32devices.h"
 #include "hw/arm/stm32.h"
 #include "exec/address-spaces.h"
 #include "exec/gdbstub.h"
@@ -61,6 +62,7 @@ struct STM32F103State {
     uint32_t osc_freq;
     uint32_t osc32_freq;
 
+
     ARMv7MState armv7m;
 
     MemoryRegion sram;
@@ -77,10 +79,12 @@ struct STM32F103State {
     DeviceState *gpio[7];
     DeviceState *uart[5];
     DeviceState *i2c[2];
-    DeviceState *spi[2];
-    DeviceState *timer[5];
-    DeviceState *adc[2];
+    DeviceState *spi[3];
+    DeviceState *timer[8];
+    DeviceState *adc[3];
     DeviceState *afio;
+
+    STM32Model_t model;
 };
 
 STM32F103State* mcu;
@@ -97,7 +101,7 @@ void stm32_uart_action(void)
     int id = m_arena->data8;
     uint16_t data = m_arena->data16;
 
-    if( id > 4 ) return;
+    if( id > mcu->model.uartN ) return;
     Stm32Uart* uart = (Stm32Uart*)mcu->uart[id];
 
     stm32_uart_receive( uart, data );
@@ -111,15 +115,17 @@ void stm32_gpio_in_action(void)
 
     //printf("stm32_f103c8_gpio_in_action %i %i %i\n", port, pin, state );fflush( stdout );
 
+    if( port >= mcu->model.gpioN ) return;
     int irqNumber = port*16+pin;
-    assert( mcu->pin_irq[irqNumber] );
+    //assert( mcu->pin_irq[irqNumber] );
     qemu_set_irq( mcu->pin_irq[irqNumber], state );
 }
 
 Stm32Timer* stm32_get_timer( int number )
 {
-    if( number > 5 ) return NULL;
-    return (Stm32Timer*)mcu->timer[number-1];
+    number -= 1;
+    if( number > (mcu->model.timerM & 1<<number) ) return NULL;
+    return (Stm32Timer*)mcu->timer[number];
 }
 
 void stm32_hw_warn(const char *fmt, ...)
@@ -237,6 +243,8 @@ static void stm32_create_uart_dev(Object *stm32_container,
                                   DeviceState *rcc_dev, hwaddr addr,
                                   qemu_irq irq, Error **errp)
 {
+    if( uart_num >= mcu->model.uartN ) return;
+
     char child_name[8];
     DeviceState *uart_dev = qdev_new("stm32-uart");
     mcu->uart[uart_num-1] = uart_dev;
@@ -259,7 +267,7 @@ static void stm32_create_timer_dev(Object *stm32_container,
                                    DeviceState *rcc_dev, hwaddr addr,
                                    qemu_irq irq, Error **errp)
 {
-    char child_name[9];
+
     DeviceState *timer_dev = qdev_new("stm32-timer");
     mcu->timer[timer_num-1] = timer_dev;
 
@@ -271,8 +279,11 @@ static void stm32_create_timer_dev(Object *stm32_container,
     //stm32_timer_set_gpio(STM32_TIMER(timer_dev), (Stm32Gpio **)gpio_dev);
     //stm32_timer_set_afio(STM32_TIMER(timer_dev), STM32_AFIO(afio_dev));
     stm32_timer_set_id( timer, timer_num );
+
+    char child_name[9];
     snprintf(child_name, sizeof(child_name), "timer[%i]", timer_num);
     object_property_add_child(stm32_container, child_name, OBJECT(timer_dev));
+
     if( !sysbus_realize(SYS_BUS_DEVICE(timer_dev), errp))
       return;
 
@@ -397,7 +408,7 @@ static const MemoryRegionOps dwt_ops = {
     .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
-static void stm32f103_soc_initfn(Object *obj)
+static void stm32f10x_soc_initfn(Object *obj)
 {
     STM32F103State *s = STM32F103_SOC(obj);
 
@@ -405,34 +416,9 @@ static void stm32f103_soc_initfn(Object *obj)
 
     s->sysclk = qdev_init_clock_in(DEVICE(s), "sysclk", NULL, NULL, 0);
     s->refclk = qdev_init_clock_in(DEVICE(s), "refclk", NULL, NULL, 0);
-
-
 }
 
-void stm32_init(ram_addr_t flash_size, ram_addr_t ram_size,
-                const char *kernel_filename, uint32_t osc_freq,
-                uint32_t osc32_freq, Clock *sysclk)
-{
-    DeviceState *dev = qdev_new(TYPE_STM32F103_SOC);
-    mcu = STM32F103_SOC( dev );
-
-    qdev_prop_set_string(dev, "cpu-type", ARM_CPU_TYPE_NAME("cortex-m3"));
-
-    if( kernel_filename)
-        qdev_prop_set_string(dev, "kernel-file", kernel_filename);
-
-    qdev_prop_set_uint64(  dev, "flash_size", flash_size);
-    qdev_prop_set_uint64(  dev, "ram_size"  , ram_size);
-    qdev_prop_set_uint32(  dev, "osc_freq"  , osc_freq);
-    qdev_prop_set_uint32(  dev, "osc32_freq", osc32_freq);
-    qdev_connect_clock_in( dev, "sysclk"    , sysclk);
-    sysbus_realize_and_unref( SYS_BUS_DEVICE(dev), &error_fatal );
-}
-
-#define FLASH_SIZE 0x00020000
-#define RAM_SIZE 0x00005000
-/* Main SYSCLK frequency in Hz (24MHz) */
-#define SYSCLK_FRQ 24000000ULL
+#define SYSCLK_FRQ 24000000ULL /* Main SYSCLK frequency in Hz (24MHz) */
 
 static void stm32_f10xxx_init( MachineState *machine )
 {
@@ -442,7 +428,24 @@ static void stm32_f10xxx_init( MachineState *machine )
 
     sysclk = clock_new( OBJECT(machine), "SYSCLK");
     clock_set_hz( sysclk, SYSCLK_FRQ );
-    stm32_init( FLASH_SIZE, RAM_SIZE, machine->kernel_filename, 8000000, 32768, sysclk );
+
+    DeviceState *dev = qdev_new(TYPE_STM32F103_SOC);
+    mcu = STM32F103_SOC( dev );
+    mcu->model = stm32_get_model( m_arena->data32 ); // 0x030202
+
+    uint32_t flash_size = mcu->model.flashSize * 1024;
+
+    qdev_prop_set_string( dev, "cpu-type", ARM_CPU_TYPE_NAME("cortex-m3") );
+
+    if( machine->kernel_filename )
+        qdev_prop_set_string(dev, "kernel-file", machine->kernel_filename );
+
+    qdev_prop_set_uint64(  dev, "flash_size", flash_size );
+    qdev_prop_set_uint64(  dev, "ram_size"  , mcu->model.ramSize*1024 );
+    qdev_prop_set_uint32(  dev, "osc_freq"  , mcu->model.oscFreq );
+    qdev_prop_set_uint32(  dev, "osc32_freq", 32768 );
+    qdev_connect_clock_in( dev, "sysclk"    , sysclk);
+    sysbus_realize_and_unref( SYS_BUS_DEVICE(dev), &error_fatal );
 
     DeviceState *i2c_master1 = DEVICE(mcu->i2c[0]);
     I2CBus *i2c_bus1 = I2C_BUS( qdev_get_child_bus(i2c_master1, "i2c") );
@@ -460,17 +463,14 @@ static void stm32_f10xxx_init( MachineState *machine )
     /// FIXME simulide: SSIBus *spi_bus2 = (SSIBus *)qdev_get_child_bus(spi_master2, "ssi");
     /// FIXME simulide: ssi_create_peripheral(spi_bus2, "simul_spi");
 
-    armv7m_load_kernel( ARM_CPU(first_cpu), machine->kernel_filename, 0, FLASH_SIZE );
+    armv7m_load_kernel( ARM_CPU(first_cpu), machine->kernel_filename, 0, flash_size );
 }
 
-static void stm32f103_soc_realize( DeviceState *dev_soc, Error **errp )
+static void stm32f10x_soc_realize( DeviceState *dev_soc, Error **errp )
 {
     STM32F103State *s = STM32F103_SOC(dev_soc);
-    DeviceState *armv7m;
     MemoryRegion *address_space_mem = get_system_memory();
     //    qemu_irq *pic;
-    DriveInfo *dinfo;
-    int i;
 
     if( clock_has_source(s->refclk) ) {
         error_setg( errp, "refclk clock must not be wired up by the board code");
@@ -526,8 +526,8 @@ static void stm32f103_soc_realize( DeviceState *dev_soc, Error **errp )
     }
     else               // Use new FLASH mode with reset support
     {
-        dinfo = drive_get(IF_PFLASH, 0, 0);
-        if( dinfo)
+        DriveInfo *dinfo = drive_get( IF_PFLASH, 0, 0 );
+        if( dinfo )
           stm32_flash_register(blk_by_legacy_dinfo(dinfo), STM32_FLASH_ADDR_START, s->flash_size);
 
         MemoryRegionSection mrs = memory_region_find( address_space_mem, STM32_FLASH_ADDR_START, 4 /*WORD_ACCESS_SIZE*/);
@@ -537,8 +537,8 @@ static void stm32f103_soc_realize( DeviceState *dev_soc, Error **errp )
     }
 
     /* Init ARMv7m */
-    armv7m = DEVICE(&s->armv7m);
-    qdev_prop_set_uint32( armv7m, "num-irq", 61);
+    DeviceState *armv7m = DEVICE(&s->armv7m);
+    qdev_prop_set_uint32( armv7m, "num-irq", 61);            /// TODO: missing Timer IRQs
     qdev_prop_set_string( armv7m, "cpu-type", s->cpu_type);
     qdev_prop_set_bit( armv7m, "enable-bitband", true);
     qdev_connect_clock_in( armv7m, "cpuclk", s->sysclk);
@@ -559,9 +559,8 @@ static void stm32f103_soc_realize( DeviceState *dev_soc, Error **errp )
 
     stm32_init_periph(rcc_dev, STM32_RCC_PERIPH, 0x40021000, qdev_get_gpio_in(armv7m, STM32_RCC_IRQ));
 
-    for( i=0; i<STM32_GPIO_COUNT; i++)  // GPIOs
+    for( int i=0; i<mcu->model.gpioN; i++)  // GPIOs
     {
-        char child_name[8];
         stm32_periph_t periph = STM32_GPIOA + i;
         DeviceState *gpio_dev = qdev_new(TYPE_STM32_GPIO);
         mcu->gpio[i] = gpio_dev;
@@ -571,8 +570,9 @@ static void stm32f103_soc_realize( DeviceState *dev_soc, Error **errp )
         stm32_gpio_set_rcc(STM32_GPIO(gpio_dev), STM32_RCC(rcc_dev));
         stm32_gpio_set_id( STM32_GPIO(gpio_dev), i );
 
-        snprintf(child_name, sizeof(child_name), "gpio[%c]", 'a' + i);
-        object_property_add_child(stm32_container, child_name, OBJECT(gpio_dev));
+        char child_name[8];
+        snprintf( child_name, sizeof(child_name), "gpio[%c]", 'a'+i );
+        object_property_add_child( stm32_container, child_name, OBJECT(gpio_dev) );
 
         if( !sysbus_realize( SYS_BUS_DEVICE(gpio_dev), errp) )
           return;
@@ -608,13 +608,19 @@ static void stm32f103_soc_realize( DeviceState *dev_soc, Error **errp )
     //    qdev_prop_set_ptr(afio_dev, "stm32_rcc", rcc_dev);
     stm32_afio_set_rcc(STM32_AFIO(afio_dev), STM32_RCC(rcc_dev));
 
-    object_property_set_link( OBJECT(afio_dev), "gpio[a]", OBJECT(mcu->gpio[0]), NULL );
-    object_property_set_link( OBJECT(afio_dev), "gpio[b]", OBJECT(mcu->gpio[1]), NULL );
-    object_property_set_link( OBJECT(afio_dev), "gpio[c]", OBJECT(mcu->gpio[2]), NULL );
-    object_property_set_link( OBJECT(afio_dev), "gpio[d]", OBJECT(mcu->gpio[3]), NULL );
-    object_property_set_link( OBJECT(afio_dev), "gpio[e]", OBJECT(mcu->gpio[4]), NULL );
-    object_property_set_link( OBJECT(afio_dev), "gpio[f]", OBJECT(mcu->gpio[5]), NULL );
-    object_property_set_link( OBJECT(afio_dev), "gpio[g]", OBJECT(mcu->gpio[6]), NULL );
+    for( int i=0; i<mcu->model.gpioN; ++i ){
+        char name[8];
+        snprintf(name, sizeof(name), "gpio[%c]", 'a'+i);
+        object_property_set_link( OBJECT(afio_dev), name, OBJECT(mcu->gpio[i]), NULL );
+    }
+
+    //object_property_set_link( OBJECT(afio_dev), "gpio[b]", OBJECT(mcu->gpio[1]), NULL );
+    //object_property_set_link( OBJECT(afio_dev), "gpio[c]", OBJECT(mcu->gpio[2]), NULL );
+    //object_property_set_link( OBJECT(afio_dev), "gpio[d]", OBJECT(mcu->gpio[3]), NULL );
+    //object_property_set_link( OBJECT(afio_dev), "gpio[e]", OBJECT(mcu->gpio[4]), NULL );
+    //object_property_set_link( OBJECT(afio_dev), "gpio[f]", OBJECT(mcu->gpio[5]), NULL );
+    //object_property_set_link( OBJECT(afio_dev), "gpio[g]", OBJECT(mcu->gpio[6]), NULL );
+
     object_property_set_link( OBJECT(afio_dev), "exti"   , OBJECT(exti_dev)   , NULL );
     object_property_add_child( stm32_container, "afio"   , OBJECT(afio_dev) );
 
@@ -632,18 +638,22 @@ static void stm32f103_soc_realize( DeviceState *dev_soc, Error **errp )
     /* Timer 1 has four interrupts but only the TIM1 Update interrupt is implemented. */
     /*qemu_irq tim1_irqs[] = { pic[TIM1_BRK_IRQn], pic[TIM1_UP_IRQn],
      * pic[TIM1_TRG_COM_IRQn], pic[TIM1_CC_IRQn]};*/
-    stm32_create_timer_dev( stm32_container, STM32_TIM1, 1, rcc_dev, 0x40012C00, qdev_get_gpio_in(armv7m, TIM1_UP_IRQn), errp);
-    stm32_create_timer_dev( stm32_container, STM32_TIM2, 2, rcc_dev, 0x40000000, qdev_get_gpio_in(armv7m, TIM2_IRQn), errp);
-    stm32_create_timer_dev( stm32_container, STM32_TIM3, 3, rcc_dev, 0x40000400, qdev_get_gpio_in(armv7m, TIM3_IRQn), errp);
-    stm32_create_timer_dev( stm32_container, STM32_TIM4, 4, rcc_dev, 0x40000800, qdev_get_gpio_in(armv7m, TIM4_IRQn), errp);
-    stm32_create_timer_dev( stm32_container, STM32_TIM5, 5, rcc_dev, 0x40000C00, qdev_get_gpio_in(armv7m, TIM5_IRQn), errp);
+
+    if( mcu->model.timerM & 1<<0 ) stm32_create_timer_dev( stm32_container, STM32_TIM1, 1, rcc_dev, 0x40012C00, qdev_get_gpio_in(armv7m, TIM1_UP_IRQn), errp);
+    if( mcu->model.timerM & 1<<1 ) stm32_create_timer_dev( stm32_container, STM32_TIM2, 2, rcc_dev, 0x40000000, qdev_get_gpio_in(armv7m, TIM2_IRQn), errp);
+    if( mcu->model.timerM & 1<<2 ) stm32_create_timer_dev( stm32_container, STM32_TIM3, 3, rcc_dev, 0x40000400, qdev_get_gpio_in(armv7m, TIM3_IRQn), errp);
+    if( mcu->model.timerM & 1<<3 ) stm32_create_timer_dev( stm32_container, STM32_TIM4, 4, rcc_dev, 0x40000800, qdev_get_gpio_in(armv7m, TIM4_IRQn), errp);
+    if( mcu->model.timerM & 1<<4 ) stm32_create_timer_dev( stm32_container, STM32_TIM5, 5, rcc_dev, 0x40000C00, qdev_get_gpio_in(armv7m, TIM5_IRQn), errp);
+    if( mcu->model.timerM & 1<<5 ) stm32_create_timer_dev( stm32_container, STM32_TIM6, 6, rcc_dev, 0x40001000, qdev_get_gpio_in(armv7m, TIM6_DAC_IRQn), errp);
+    if( mcu->model.timerM & 1<<6 ) stm32_create_timer_dev( stm32_container, STM32_TIM7, 7, rcc_dev, 0x40001400, qdev_get_gpio_in(armv7m, TIM7_IRQn), errp);
+    if( mcu->model.timerM & 1<<7 ) stm32_create_timer_dev( stm32_container, STM32_TIM8, 8, rcc_dev, 0x40013400, qdev_get_gpio_in(armv7m, TIM8_UP_TIM13_IRQn), errp);
 
     stm32_create_adc_dev( stm32_container, STM32_ADC1, 1, rcc_dev, mcu->gpio, 0x40012400, 0, errp);
     stm32_create_adc_dev( stm32_container, STM32_ADC2, 2, rcc_dev, mcu->gpio, 0x40012800, 0, errp);
 
                                                 // Same memory address ????  ********** ??????????????????????????
-    stm32_create_rtc_dev( stm32_container, STM32_RTC , 1, rcc_dev          , 0x40002800, qdev_get_gpio_in( armv7m, STM32_RTC_IRQ )     , errp);
-    stm32_create_rtc_dev( stm32_container, STM32_RTC , 2, rcc_dev          , 0x40002800, qdev_get_gpio_in( armv7m, STM32_RTCAlarm_IRQ ), errp);
+    stm32_create_rtc_dev( stm32_container, STM32_RTC , 1, rcc_dev, 0x40002800, qdev_get_gpio_in( armv7m, STM32_RTC_IRQ )     , errp);
+    stm32_create_rtc_dev( stm32_container, STM32_RTC , 2, rcc_dev, 0x40002800, qdev_get_gpio_in( armv7m, STM32_RTCAlarm_IRQ ), errp);
 
     stm32_create_dac_dev( stm32_container, STM32_DAC , rcc_dev, mcu->gpio   , 0x40007400, 0, errp);
 
@@ -741,7 +751,7 @@ static void stm32f103_soc_realize( DeviceState *dev_soc, Error **errp )
     memory_region_add_subregion_overlap( &sc->container, 0xE0001000, &s->DWT.dwt_mem, 1 );
 }
 
-static Property stm32f103_soc_properties[] = {
+static Property stm32f10x_soc_properties[] = {
     DEFINE_PROP_STRING("cpu-type"   , STM32F103State, cpu_type),
     DEFINE_PROP_STRING("kernel-file", STM32F103State, kernel_file),
     DEFINE_PROP_UINT64("flash_size" , STM32F103State, flash_size, 0x00020000),
@@ -751,23 +761,23 @@ static Property stm32f103_soc_properties[] = {
     DEFINE_PROP_END_OF_LIST(),
 };
 
-static void stm32f103_soc_class_init(ObjectClass *klass, void *data) {
+static void stm32f10x_soc_class_init(ObjectClass *klass, void *data) {
     DeviceClass *dc = DEVICE_CLASS(klass);
 
-    dc->realize = stm32f103_soc_realize;
-    device_class_set_props(dc, stm32f103_soc_properties);
+    dc->realize = stm32f10x_soc_realize;
+    device_class_set_props( dc, stm32f10x_soc_properties );
 }
 
-static const TypeInfo stm32f103_soc_info = {
+static const TypeInfo stm32f10x_soc_info = {
     .name = TYPE_STM32F103_SOC,
     .parent = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(STM32F103State),
-    .instance_init = stm32f103_soc_initfn,
-    .class_init = stm32f103_soc_class_init,
+    .instance_init = stm32f10x_soc_initfn,
+    .class_init = stm32f10x_soc_class_init,
 };
 
-static void stm32f103_soc_types(void) {
-    type_register_static( &stm32f103_soc_info );
+static void stm32f10x_soc_types(void) {
+    type_register_static( &stm32f10x_soc_info );
 }
 
 static void stm32_f10xxx_machine_init(MachineClass *mc)
@@ -780,5 +790,5 @@ static void stm32_f10xxx_machine_init(MachineClass *mc)
 
 DEFINE_MACHINE("stm32-f10xxx-simul", stm32_f10xxx_machine_init)
 
-type_init(stm32f103_soc_types)
+type_init(stm32f10x_soc_types)
 

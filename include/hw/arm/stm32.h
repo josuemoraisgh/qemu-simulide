@@ -176,13 +176,20 @@ const char *stm32_periph_name(stm32_periph_t periph);
 
 #define STM32_EXTI9_5_IRQ 23
 
-#define TIM1_BRK_IRQn     24     /*!< TIM1 Break Interrupt                                 */
-#define TIM1_UP_IRQn      25     /*!< TIM1 Update Interrupt                                */
-#define TIM1_TRG_COM_IRQn 26     /*!< TIM1 Trigger and Commutation Interrupt               */
-#define TIM1_CC_IRQn      27     /*!< TIM1 Capture Compare Interrupt                       */
-#define TIM2_IRQn         28     /*!< TIM2 global Interrupt                                */
-#define TIM3_IRQn         29     /*!< TIM3 global Interrupt                                */
-#define TIM4_IRQn         30     /*!< TIM4 global Interrupt                                */
+#define TIM1_BRK_IRQn           24     /*!< TIM1 Break Interrupt                                 */
+#define TIM1_UP_IRQn            25     /*!< TIM1 Update Interrupt                                */
+#define TIM1_TRG_COM_IRQn       26     /*!< TIM1 Trigger and Commutation Interrupt               */
+#define TIM1_CC_IRQn            27     /*!< TIM1 Capture Compare Interrupt                       */
+#define TIM2_IRQn               28     /*!< TIM2 global Interrupt                                */
+#define TIM3_IRQn               29     /*!< TIM3 global Interrupt                                */
+#define TIM4_IRQn               30     /*!< TIM4 global Interrupt                                */
+#define TIM5_IRQn               50     /*!< TIM5 global Interrupt                                */
+#define TIM6_DAC_IRQn           54     /*!< TIM6 and DAC underrun Interrupt                      */
+#define TIM7_IRQn               55     /*!< TIM7 Interrupt                                       */
+#define TIM8_BRK_TIM12_IRQn     43     /*!< TIM8 Break Interrupt and TIM12 global Interrupt      */
+#define TIM8_UP_TIM13_IRQn      44     /*!< TIM8 Update Interrupt and TIM13 global Interrupt     */
+#define TIM8_TRG_COM_TIM14_IRQn 45     /*!< TIM8 Trigger and Commutation Interrupt and TIM14 global interrupt */
+#define TIM8_CC_IRQn            46     /*!< TIM8 Capture Compare Interrupt                       */
 
 #define STM32_I2C1_EV_IRQ 31
 #define STM32_I2C1_ER_IRQ 32
@@ -197,16 +204,11 @@ const char *stm32_periph_name(stm32_periph_t periph);
 #define STM32_RTCAlarm_IRQ 41
 #define STM32_OTG_FS_WKUP_IRQ 42
 
-#define TIM8_BRK_TIM12_IRQn     43     /*!< TIM8 Break Interrupt and TIM12 global Interrupt      */
-#define TIM8_UP_TIM13_IRQn      44     /*!< TIM8 Update Interrupt and TIM13 global Interrupt     */
-#define TIM8_TRG_COM_TIM14_IRQn 45     /*!< TIM8 Trigger and Commutation Interrupt and TIM14 global interrupt */
-#define TIM8_CC_IRQn            46     /*!< TIM8 Capture Compare Interrupt                       */
+
 
 #define STM32_DMA1_STREAM7_IRQ 47
 
-#define TIM5_IRQn               50     /*!< TIM5 global Interrupt                                */
-#define TIM6_DAC_IRQn           54     /*!< TIM6 and DAC underrun Interrupt                      */
-#define TIM7_IRQn               55     /*!< TIM7 Interrupt                                       */       
+
 #define STM32_ETH_WKUP_IRQ 62
 
 //#define STM32_I2C3_EV_IRQ 72
