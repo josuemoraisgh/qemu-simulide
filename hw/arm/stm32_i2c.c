@@ -342,8 +342,7 @@ static const MemoryRegionOps stm32_i2c_ops = {
     .endianness = DEVICE_NATIVE_ENDIAN
 };
 
-static void
-stm32_i2c_reset(DeviceState *dev)
+static void stm32_i2c_reset(DeviceState *dev)
 {
     stm32_i2c_state *s = STM32_I2C(dev);
 //    s->regs[R_SR] = R_SR_RESET;
@@ -351,11 +350,7 @@ stm32_i2c_reset(DeviceState *dev)
       s->needstop = 0;
 }
 
-
-
-
-static void
-stm32_i2c_init(Object *obj)
+static void stm32_i2c_init(Object *obj)
 {
     stm32_i2c_state *s = STM32_I2C(obj); 
     SysBusDevice *sbd = SYS_BUS_DEVICE(obj);
@@ -365,17 +360,14 @@ stm32_i2c_init(Object *obj)
     sysbus_init_irq(sbd, &s->evt_irq);
     sysbus_init_irq(sbd, &s->err_irq);
     s->bus = i2c_init_bus(DEVICE(s), "i2c");
-
 }
-
 
 static Property stm32_i2c_properties[] = {
     DEFINE_PROP_INT32("periph", stm32_i2c_state, periph, -1),
     DEFINE_PROP_END_OF_LIST()
 };
 
-static void
-stm32_i2c_class_init(ObjectClass *c, void *data)
+static void stm32_i2c_class_init(ObjectClass *c, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(c);
 

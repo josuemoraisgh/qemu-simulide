@@ -79,6 +79,15 @@ enum {
     TIMER_DOWN_COUNT = 1
 };
 
+//enum simTimerAction{
+//    QTIMER_CR1=1,
+//    QTIMER_READ,
+//    QTIMER_WRITE,
+//    QTIMER_SET_FREQ,
+//    QTIMER_SET_LIMIT,
+//    QTIMER_OVF,
+//};
+
 typedef struct Stm32Timer Stm32Timer;
 
 typedef struct Stm32Channel {
@@ -123,7 +132,7 @@ struct Stm32Timer {
 
     Stm32Channel channels[4];
 
-    int id;
+    int number;
 
     uint8_t enabled;
     //int period;
@@ -790,8 +799,8 @@ void stm32_timer_set_rcc(Stm32Timer *tim, Stm32Rcc* rcc){
 //    tim->stm32_afio = afio;
 //}
 
-void stm32_timer_set_id( Stm32Timer *tim, int tim_num ) {
-    tim->id = tim_num -1;
+void stm32_timer_set_number( Stm32Timer *tim, int tim_num ) {
+    tim->number= tim_num -1;
 }
 //---------------------------------------------------------------------------
 

@@ -19,6 +19,17 @@
 
 static int i2c_id = 0;
 
+enum sim_i2c_action {
+    SIM_I2C_START_READ=1,
+    SIM_I2C_START_WRITE,
+    SIM_I2C_START_WRITE_ASYNC,
+    SIM_I2C_STOP,
+    SIM_I2C_NOACK, /* Masker NACKed a receive byte.  */
+    SIM_I2C_WRITE,
+    SIM_I2C_READ,
+    SIM_I2C_MATCH,
+};
+
 typedef struct I2cIface {
     I2CSlave i2c;
     uint8_t device_addr;

@@ -251,7 +251,7 @@ static void stm32_create_uart_dev(Object *stm32_container,
 
     QDEV_PROP_SET_PERIPH_T(uart_dev, "periph", periph);
     stm32_uart_set_rcc( STM32_UART(uart_dev), STM32_RCC(rcc_dev) );
-    stm32_uart_set_id( STM32_UART(uart_dev), uart_num );
+    stm32_uart_set_number( STM32_UART(uart_dev), uart_num );
     snprintf( child_name, sizeof(child_name), "uart[%i]", uart_num );
 
     object_property_add_child(stm32_container, child_name, OBJECT(uart_dev));
@@ -278,7 +278,7 @@ static void stm32_create_timer_dev(Object *stm32_container,
     stm32_timer_set_rcc( timer, STM32_RCC(rcc_dev));
     //stm32_timer_set_gpio(STM32_TIMER(timer_dev), (Stm32Gpio **)gpio_dev);
     //stm32_timer_set_afio(STM32_TIMER(timer_dev), STM32_AFIO(afio_dev));
-    stm32_timer_set_id( timer, timer_num );
+    stm32_timer_set_number( timer, timer_num );
 
     char child_name[9];
     snprintf(child_name, sizeof(child_name), "timer[%i]", timer_num);
@@ -568,7 +568,7 @@ static void stm32f10x_soc_realize( DeviceState *dev_soc, Error **errp )
         QDEV_PROP_SET_PERIPH_T(gpio_dev, "periph", periph);
         // qdev_prop_set_ptr(gpio_dev[i], "stm32_rcc", rcc_dev);
         stm32_gpio_set_rcc(STM32_GPIO(gpio_dev), STM32_RCC(rcc_dev));
-        stm32_gpio_set_id( STM32_GPIO(gpio_dev), i );
+        stm32_gpio_set_number( STM32_GPIO(gpio_dev), i );
 
         char child_name[8];
         snprintf( child_name, sizeof(child_name), "gpio[%c]", 'a'+i );
@@ -613,13 +613,6 @@ static void stm32f10x_soc_realize( DeviceState *dev_soc, Error **errp )
         snprintf(name, sizeof(name), "gpio[%c]", 'a'+i);
         object_property_set_link( OBJECT(afio_dev), name, OBJECT(mcu->gpio[i]), NULL );
     }
-
-    //object_property_set_link( OBJECT(afio_dev), "gpio[b]", OBJECT(mcu->gpio[1]), NULL );
-    //object_property_set_link( OBJECT(afio_dev), "gpio[c]", OBJECT(mcu->gpio[2]), NULL );
-    //object_property_set_link( OBJECT(afio_dev), "gpio[d]", OBJECT(mcu->gpio[3]), NULL );
-    //object_property_set_link( OBJECT(afio_dev), "gpio[e]", OBJECT(mcu->gpio[4]), NULL );
-    //object_property_set_link( OBJECT(afio_dev), "gpio[f]", OBJECT(mcu->gpio[5]), NULL );
-    //object_property_set_link( OBJECT(afio_dev), "gpio[g]", OBJECT(mcu->gpio[6]), NULL );
 
     object_property_set_link( OBJECT(afio_dev), "exti"   , OBJECT(exti_dev)   , NULL );
     object_property_add_child( stm32_container, "afio"   , OBJECT(afio_dev) );

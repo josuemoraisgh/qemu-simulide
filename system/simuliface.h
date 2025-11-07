@@ -48,36 +48,11 @@ enum arm32Actions{
 
 enum simAction{
     SIM_I2C=10,
+    SIM_SPI,
     SIM_USART,
     SIM_TIMER,
     SIM_GPIO_IN,
     SIM_EVENT=1<<7,
-};
-
-enum simI2cAction {
-    SIM_I2C_START_READ=1,
-    SIM_I2C_START_WRITE,
-    SIM_I2C_START_WRITE_ASYNC,
-    SIM_I2C_STOP,
-    SIM_I2C_NOACK, /* Masker NACKed a receive byte.  */
-    SIM_I2C_WRITE,
-    SIM_I2C_READ,
-    SIM_I2C_MATCH,
-};
-
-enum simUsartAction {
-    SIM_USART_READ=1,
-    SIM_USART_WRITE,
-    SIM_USART_BAUD
-};
-
-enum simTimerAction{
-    QTIMER_CR1=1,
-    QTIMER_READ,
-    QTIMER_WRITE,
-    QTIMER_SET_FREQ,
-    QTIMER_SET_LIMIT,
-    QTIMER_OVF,
 };
 
 extern volatile qemuArena_t* m_arena;

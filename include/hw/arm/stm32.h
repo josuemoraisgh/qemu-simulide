@@ -356,10 +356,10 @@ typedef struct stm32_i2c_state stm32_i2c_state;
 
 
 /* SPI */
-typedef struct stm32_spi_state stm32_spi_state;
+typedef struct Stm32Spi Stm32Spi;
 
 #define TYPE_STM32_SPI "stm32.spi"
-#define STM32_SPI(obj) OBJECT_CHECK(stm32_spi_state, (obj), TYPE_STM32_SPI)
+#define STM32_SPI(obj) OBJECT_CHECK(Stm32Spi, (obj), TYPE_STM32_SPI)
 
 
 /* STM32 MICROCONTROLLER - GENERAL */
@@ -381,21 +381,23 @@ void stm32_adc_set_channel_value(Stm32Adc *adc, const unsigned int channel, cons
 
 void stm32_iwdg_set_rcc(Stm32Iwdg *iwdg, Stm32Rcc* rcc);
 
+void stm32_spi_set_number( Stm32Spi *spi, int spi_num );
+
 ///void stm32_uart_set_gpio(Stm32Uart *uart, Stm32Gpio** gpio);
 void stm32_uart_set_rcc(Stm32Uart *uart, Stm32Rcc* rcc);
 ///void stm32_uart_set_afio(Stm32Uart *uart, Stm32Afio* afio);
-void stm32_uart_set_id(Stm32Uart *uart, int uart_num);
+void stm32_uart_set_number(Stm32Uart *uart, int uart_num);
 void stm32_uart_action(void);
 
 ///void stm32_timer_set_gpio(Stm32Timer *tim, Stm32Gpio** gpio);
 void stm32_timer_set_rcc(Stm32Timer *tim, Stm32Rcc* rcc);
 ///void stm32_timer_set_afio(Stm32Timer *tim, Stm32Afio* afio);
-void stm32_timer_set_id( Stm32Timer *tim, int tim_num );
+void stm32_timer_set_number( Stm32Timer *tim, int tim_num );
 
 void stm32_rtc_set_rcc(Stm32Rtc *rtc, Stm32Rcc* rcc);
 
 void stm32_gpio_set_rcc(Stm32Gpio *gpio, Stm32Rcc* rcc);
-void stm32_gpio_set_id(Stm32Gpio *gpio, int gpio_num);
+void stm32_gpio_set_number( Stm32Gpio *gpio, int gpio_num );
 void stm32_gpio_in_action(void);
 
 void stm32_dac_set_gpio(Stm32Dac *dac, Stm32Gpio** gpio);

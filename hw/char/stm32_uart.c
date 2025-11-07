@@ -66,6 +66,12 @@
 
 #define GTPR_OFFSET 0x18
 
+enum stm32_usart_action {
+    SIM_USART_READ=1,
+    SIM_USART_WRITE,
+    SIM_USART_BAUD
+};
+
 struct Stm32Uart {
   /* Inherited */
   SysBusDevice busdev;
@@ -103,7 +109,7 @@ struct Stm32Uart {
   qemu_irq irq;
 
   bool curr_irq_level;
-  int id;
+  int number;
 };
 
 static void stm32_uart_baud_update( Stm32Uart *s ) // Update the baud rate based on the USART's peripheral clock frequency.
@@ -120,7 +126,7 @@ static void stm32_uart_baud_update( Stm32Uart *s ) // Update the baud rate based
 
     m_arena->simuAction = SIM_USART;
     m_arena->data8  = SIM_USART_BAUD;
-    m_arena->data16 = s->id;          // Uart number
+    m_arena->data16 = s->number;          // Uart number
     m_arena->data32 = s->bits_per_sec;
 
     doAction();
@@ -172,7 +178,7 @@ static void stm32_uart_start_tx( Stm32Uart *s ) // Start transmitting a byte.
 
     m_arena->simuAction = SIM_USART;
     m_arena->data8  = SIM_USART_WRITE;
-    m_arena->data16 = s->id;        // Uart number
+    m_arena->data16 = s->number;        // Uart number
     m_arena->data32 = s->TDR_r;
 
     doAction();
@@ -217,7 +223,7 @@ void stm32_uart_receive( Stm32Uart* s, const uint8_t data );
 
 void stm32_uart_receive( Stm32Uart* s, const uint8_t data )
 {
-    printf("Qemu: stm32_uart_receive %u %u\n", s->id, data );
+    printf("Qemu: stm32_uart_receive %u %u\n", s->number, data );
     printf("      at time %lu\n", getQemu_ps() ); fflush( stdout );
 
     if( s->CR1_UE && s->CR1_RE ) // Module is enabled
@@ -382,7 +388,7 @@ static const MemoryRegionOps stm32_uart_ops = {
 
 /* DEVICE INITIALIZATION */
 
-static void stm32_uart_init(Object *obj)
+static void stm32_uart_init( Object *obj )
 {
     SysBusDevice *dev = SYS_BUS_DEVICE(obj);
     Stm32Uart      *s = STM32_UART(dev);
@@ -413,8 +419,8 @@ void stm32_uart_set_rcc( Stm32Uart *uart, Stm32Rcc *rcc ) {
     uart->stm32_rcc = rcc;
 }
 
-void stm32_uart_set_id( Stm32Uart *uart, int uart_num ) {
-    uart->id = uart_num -1;
+void stm32_uart_set_number( Stm32Uart *uart, int uart_num ) {
+    uart->number = uart_num -1;
 }
 
 static Property stm32_uart_properties[] = {
