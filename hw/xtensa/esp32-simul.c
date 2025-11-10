@@ -91,7 +91,7 @@ static const struct MemmapEntry {
 
 static void remove_cpu_watchpoints(XtensaCPU* xcs)
 {
-    for( int i = 0; i < MAX_NDBREAK; ++i)
+    for( int i=0; i<MAX_NDBREAK; ++i)
     {
         if( xcs->env.cpu_watchpoint[i])
         {
@@ -146,7 +146,7 @@ static void esp32_timg_sys_reset(void* opaque, int n, int level)
 
     esp32_dport_clear_ill_trap_state(&s->dport);
     s->requested_reset = ESP32_SOC_RESET_DIG;
-    for( int i = 0; i < ESP32_CPU_COUNT; ++i) {
+    for( int i=0; i<ESP32_CPU_COUNT; ++i) {
         s->rtc_cntl.reset_cause[i] = ESP32_TG0WDT_SYS_RESET + n;
     }
     qemu_system_reset_request(SHUTDOWN_CAUSE_GUEST_RESET);
@@ -175,20 +175,20 @@ static void esp32_soc_reset(DeviceState *dev)
         device_cold_reset( DEVICE( &s->rsa      ) );
         device_cold_reset( DEVICE( &s->gpio     ) );
 
-        for( int i = 0; i < ESP32_UART_COUNT; ++i) {
+        for( int i=0; i<ESP32_UART_COUNT; ++i) {
             device_cold_reset(DEVICE(&s->uart[i]));
         }
-        for( int i = 0; i < ESP32_FRC_COUNT; ++i) {
+        for( int i=0; i<ESP32_FRC_COUNT; ++i) {
             device_cold_reset(DEVICE(&s->frc_timer[i]));
         }
-        for( int i = 0; i < ESP32_TIMG_COUNT; ++i) {
+        for( int i=0; i<ESP32_TIMG_COUNT; ++i) {
             device_cold_reset(DEVICE(&s->timg[i]));
         }
         s->timg[0].flash_boot_mode = flash_boot_mode;
-        for( int i = 0; i < ESP32_SPI_COUNT; ++i) {
+        for( int i=0; i<ESP32_SPI_COUNT; ++i) {
             device_cold_reset(DEVICE(&s->spi[i]));
         }
-        for( int i = 0; i < ESP32_I2C_COUNT; i++) {
+        for( int i=0; i<ESP32_I2C_COUNT; i++) {
             device_cold_reset(DEVICE(&s->i2c[i]));
         }
         device_cold_reset(DEVICE(&s->efuse));
@@ -372,7 +372,7 @@ static void esp32_soc_realize( DeviceState *dev, Error **errp )
     }
     if( s->dport.has_psram)
     {
-        for( int i = 0; i < ESP32_CPU_COUNT; ++i) {
+        for( int i=0; i<ESP32_CPU_COUNT; ++i) {
             Esp32CacheRegionState *dram1 = &s->dport.cache_state[i].dram1;
             memory_region_add_subregion_overlap( &s->cpu_specific_mem[i], dram1->base, &dram1->illegal_access_trap_mem, -2);
             memory_region_add_subregion_overlap( &s->cpu_specific_mem[i], dram1->base, &dram1->mem, -1);
@@ -414,7 +414,7 @@ static void esp32_soc_realize( DeviceState *dev, Error **errp )
     qdev_connect_gpio_out_named(DEVICE(&s->rtc_cntl), ESP32_RTC_CLK_UPDATE_GPIO, 0,
                                 qdev_get_gpio_in_named(dev, ESP32_RTC_CLK_UPDATE_GPIO, 0));
 
-    for( int i = 0; i < ms->smp.cpus; ++i) {
+    for( int i=0; i<ms->smp.cpus; ++i) {
         qdev_connect_gpio_out_named(DEVICE(&s->rtc_cntl), ESP32_RTC_CPU_RESET_GPIO, i,
                                     qdev_get_gpio_in_named(dev, ESP32_RTC_CPU_RESET_GPIO, i));
         qdev_connect_gpio_out_named(DEVICE(&s->rtc_cntl), ESP32_RTC_CPU_STALL_GPIO, i,
@@ -424,7 +424,7 @@ static void esp32_soc_realize( DeviceState *dev, Error **errp )
     qdev_realize( DEVICE(&s->gpio), &s->periph_bus, &error_fatal );
     esp32_soc_add_periph_device( sys_mem, &s->gpio, DR_REG_GPIO_BASE );
 
-    for( int i = 0; i < ESP32_UART_COUNT; ++i) {
+    for( int i=0; i<ESP32_UART_COUNT; ++i) {
         const hwaddr uart_base[] = {DR_REG_UART_BASE, DR_REG_UART1_BASE, DR_REG_UART2_BASE};
         qdev_realize(DEVICE(&s->uart[i]), &s->periph_bus, &error_fatal);
         esp32_soc_add_periph_device(sys_mem, &s->uart[i], uart_base[i]);
@@ -432,14 +432,14 @@ static void esp32_soc_realize( DeviceState *dev, Error **errp )
                            qdev_get_gpio_in(intmatrix_dev, ETS_UART0_INTR_SOURCE + i));
     }
 
-    for( int i = 0; i < ESP32_FRC_COUNT; ++i) {
+    for( int i=0; i<ESP32_FRC_COUNT; ++i) {
         qdev_realize(DEVICE(&s->frc_timer[i]), &s->periph_bus, &error_fatal);
         esp32_soc_add_periph_device(sys_mem, &s->frc_timer[i], DR_REG_FRC_TIMER_BASE + i * ESP32_FRC_TIMER_STRIDE);
         sysbus_connect_irq(SYS_BUS_DEVICE(&s->frc_timer[i]), 0,
                            qdev_get_gpio_in(intmatrix_dev, ETS_TIMER1_INTR_SOURCE + i));
     }
 
-    for( int i = 0; i < ESP32_TIMG_COUNT; ++i) {
+    for( int i=0; i<ESP32_TIMG_COUNT; ++i){
         s->timg[i].id = i;
 
         const hwaddr timg_base[] = {DR_REG_TIMERGROUP0_BASE, DR_REG_TIMERGROUP1_BASE};
@@ -462,14 +462,14 @@ static void esp32_soc_realize( DeviceState *dev, Error **errp )
     s->timg[0].wdt_en_at_reset = true;
 
     const hwaddr spi_base[] = { DR_REG_SPI0_BASE, DR_REG_SPI1_BASE, DR_REG_SPI2_BASE, DR_REG_SPI3_BASE };
-    for( int i = 0; i < ESP32_SPI_COUNT; ++i) {
+    for( int i=0; i<ESP32_SPI_COUNT; ++i) {
         qdev_realize(DEVICE(&s->spi[i]), &s->periph_bus, &error_fatal);
         esp32_soc_add_periph_device(sys_mem, &s->spi[i], spi_base[i]);
         sysbus_connect_irq(SYS_BUS_DEVICE(&s->spi[i]), 0,
                            qdev_get_gpio_in(intmatrix_dev, ETS_SPI0_INTR_SOURCE + i));
     }
     const hwaddr i2c_base[] = { DR_REG_I2C_EXT_BASE, DR_REG_I2C1_EXT_BASE };
-    for( int i = 0; i < ESP32_I2C_COUNT; i++) {
+    for( int i=0; i<ESP32_I2C_COUNT; i++) {
         qdev_realize(DEVICE(&s->i2c[i]), &s->periph_bus, &error_fatal);
         esp32_soc_add_periph_device(sys_mem, &s->i2c[i], i2c_base[i]);
         sysbus_connect_irq(SYS_BUS_DEVICE(&s->i2c[i]), 0,
@@ -556,7 +556,7 @@ static void esp32_soc_init(Object *obj)
     qbus_init( &s->periph_bus, sizeof(s->periph_bus), TYPE_SYSTEM_BUS, DEVICE(s), "esp32-periph-bus");
     qbus_init( &s->rtc_bus   , sizeof(s->rtc_bus)   , TYPE_SYSTEM_BUS, DEVICE(s), "esp32-rtc-bus");
 
-    for( int i = 0; i < ms->smp.cpus; ++i) {
+    for( int i=0; i<ms->smp.cpus; ++i) {
         snprintf( name, sizeof(name), "cpu%d", i );
         object_initialize_child( obj, name, &s->cpu[i], TYPE_ESP32_CPU );
 
@@ -577,7 +577,7 @@ static void esp32_soc_init(Object *obj)
         cs->memory = &s->cpu_specific_mem[i];
     }
 
-    for( int i = 0; i < ESP32_UART_COUNT; ++i) {
+    for( int i=0; i<ESP32_UART_COUNT; ++i) {
         snprintf( name, sizeof(name), "uart%d", i );
         object_initialize_child( obj, name, &s->uart[i], TYPE_ESP32_UART );
     }
@@ -592,22 +592,22 @@ static void esp32_soc_init(Object *obj)
     object_initialize_child( obj, "crosscore_int", &s->crosscore_int, TYPE_ESP32_CROSSCORE_INT );
     object_initialize_child( obj, "rtc_cntl"     , &s->rtc_cntl     , TYPE_ESP32_RTC_CNTL );
 
-    for( int i = 0; i < ESP32_FRC_COUNT; ++i) {
+    for( int i=0; i<ESP32_FRC_COUNT; ++i) {
         snprintf(name, sizeof(name), "frc%d", i);
         object_initialize_child(obj, name, &s->frc_timer[i], TYPE_ESP32_FRC_TIMER);
     }
 
-    for( int i = 0; i < ESP32_TIMG_COUNT; ++i) {
+    for( int i=0; i<ESP32_TIMG_COUNT; ++i) {
         snprintf(name, sizeof(name), "timg%d", i);
         object_initialize_child(obj, name, &s->timg[i], TYPE_ESP32_TIMG);
     }
 
-    for( int i = 0; i < ESP32_SPI_COUNT; ++i) {
+    for( int i=0; i<ESP32_SPI_COUNT; ++i) {
         snprintf(name, sizeof(name), "spi%d", i);
         object_initialize_child(obj, name, &s->spi[i], TYPE_ESP32_SPI);
     }
 
-    for( int i = 0; i < ESP32_I2C_COUNT; ++i) {
+    for( int i=0; i<ESP32_I2C_COUNT; ++i) {
         snprintf(name, sizeof(name), "i2c%d", i);
         object_initialize_child(obj, name, &s->i2c[i], TYPE_ESP32_I2C);
     }

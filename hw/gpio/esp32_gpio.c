@@ -60,22 +60,15 @@ static void inputChanged( Esp32GpioState *gpioS, int pin, int val )
 
 static void readInput( Esp32GpioState *gpioS, int n )
 {
-    uint64_t qemuTime = getQemu_ps();
     if( !m_arena->running ) return;
 
     uint32_t* gpioIn  = &gpioS->gpio_in[n];
 
     m_arena->data8 = n;
     m_arena->data32 = *gpioIn;
-    m_arena->time   = qemuTime;
     m_arena->action = ESP_GPIO_IN;
+    doAction();
 
-    while( m_arena->action ) // Wait for read completed
-    {
-        m_timeout += 1;
-        if( m_timeout > 5e9 ) return; // Exit if timed out
-    }
-    m_timeout = 0;
     uint32_t changedMask = m_arena->mask32;
 //printf("Input      %lu\n", changedMask ); fflush( stdout );
     if( changedMask == 0 ) return;
@@ -153,24 +146,23 @@ static void clearStatus( Esp32GpioState* gpioS, int n, uint64_t value ) // GPIO_
 
 static void outChanged( uint32_t state )
 {
-    uint64_t qemuTime = getQemu_ps();
     if( !m_arena->running ) return;
 
     //printf("gpioChanged %i %i %lu %lu\n", pin, state, newState, qemuTime ); fflush( stdout );
 
     m_arena->action = ESP_GPIO_OUT;
     m_arena->data32 = state;
-    m_arena->time = qemuTime;
+
+    doAction();
 }
 
 static void dirChanged( uint32_t dir )
 {
-    uint64_t qemuTime = getQemu_ps();
     if( !m_arena->running ) return;
 //printf("dirChanged %i %lu\n", dir, qemuTime ); fflush( stdout );
     m_arena->action = ESP_GPIO_DIR;
     m_arena->data32 = dir;
-    m_arena->time = qemuTime;
+    doAction();
 }
 
 static void matrixChanged( int out, int func, int value )
@@ -182,13 +174,12 @@ static void matrixChanged( int out, int func, int value )
 
     //fflush( stdout );
 
-    uint64_t qemuTime = getQemu_ps();
     if( !m_arena->running ) return;
 
     m_arena->action = out ? ESP_MATRIX_OUT : ESP_MATRIX_IN;
     m_arena->data32 = value;
     m_arena->data8  = func;
-    m_arena->time = qemuTime;
+    doAction();
 }
 
 static void esp32_gpio_write( void *opaque, hwaddr addr, uint64_t value, unsigned int size )
