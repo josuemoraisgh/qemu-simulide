@@ -164,6 +164,7 @@ jobs:
           set -euxo pipefail
           test -f ./configure
           ./configure --target-list=xtensa-softmmu \
+            --disable-safestack \
             --extra-cflags="-fPIC ${{ env.SLIRP_CPPFLAGS }}" \
             --extra-ldflags="${{ env.SLIRP_LDFLAGS }}" \
             ${SLIRP_FLAG} \
@@ -207,9 +208,9 @@ jobs:
           set -euo pipefail
           # NÃO usar opção inexistente de 'safestack'; só ajustamos args.
           # Adiciona include forçado do header em TODOS os TUs
-          meson configure build -Dc_args="${CFLAGS} -include /tmp/ci_shims.h"
+          meson configure build -Dc_args="${CFLAGS} -include /tmp/ci_shims.h" -Dsafestack=false
           # Força linkar a lib estática dos shims
-          meson configure build -Dc_link_args="/tmp/libci_shims.a"
+          meson configure build -Dc_link_args="/tmp/libci_shims.a" -Dsafestack=false
           meson configure build
 
       - name: Build (ninja com captura de stdout/stderr)
