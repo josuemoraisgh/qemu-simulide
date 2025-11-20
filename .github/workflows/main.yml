@@ -135,23 +135,46 @@ jobs:
 
           EXTRA_CFLAGS="${ARENA} ${SHIMINC} ${CFLAGS_BASE}"
           EXTRA_LDFLAGS="${SHIMS_DIR}/libci_shims.a"
-
+          
+          # Limpa variáveis que possam interferir
+          unset CFLAGS CPPFLAGS LDFLAGS || true
+          
           export CC=gcc
           export CXX=g++
           export AR=ar
           export NM=nm
           export RANLIB=ranlib
           export LD=ld
-
+          
           ../configure \
             --target-list=xtensa-softmmu \
             --enable-system \
             --enable-tcg \
             --enable-sdl \
             --enable-capstone \
-            --extra-cflags="${EXTRA_CFLAGS}" \
-            --extra-ldflags="${EXTRA_LDFLAGS}" \
             --disable-werror
+
+      - name: Build (ninja)
+        shell: msys2 {0}
+        env:
+          NINJA_STATUS: "[%f/%t %o/sec] "
+          TERM: dumb
+        run: |
+          export PATH="/mingw64/bin:/usr/bin:/bin"
+          mkdir -p _build/_ci_logs
+          (
+            set +e
+            ninja -C _build/build -v \
+              1> >(tee _build/_ci_logs/_ci_stdout.log) \
+              2> >(tee _build/_ci_logs/_ci_stderr.log >&2)
+            echo $? > _build/_ci_logs/_ci_rc.txt
+          )
+          RC="$(cat _build/_ci_logs/_ci_rc.txt || echo 1)"
+          if [ "$RC" -ne 0 ]; then
+            echo "Build falhou com RC=$RC"
+            exit "$RC"
+          fi
+
 
       # ---------------------------------------------
       # Build (ninja) em _build/build
