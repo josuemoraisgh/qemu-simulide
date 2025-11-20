@@ -96,7 +96,7 @@ jobs:
             Remove-Item -Recurse -Force "build"
           }
 
-      - name: Configure QEMU (FORÇANDO gcc MinGW64)
+            - name: Configure QEMU (FORÇANDO gcc MinGW64)
         shell: msys2 {0}
         run: |
           export PATH="/mingw64/bin:/usr/bin:/bin"
@@ -106,11 +106,11 @@ jobs:
           which gcc
           gcc --version
 
-          # garantir remoção dentro do msys2 também
-          rm -rf build
-          mkdir -p build/ci_shims
+          # NÃO usar build/
+          rm -rf build_msys
+          mkdir -p build_msys/ci_shims
 
-          SHIMS_DIR="$(pwd)/build/ci_shims"
+          SHIMS_DIR="$(pwd)/build_msys/ci_shims"
           ARENA="-I$(pwd)/hw/arena"
           SHIMINC="-include ${SHIMS_DIR}/ci_shims.h"
 
@@ -124,9 +124,6 @@ jobs:
           export RANLIB=/mingw64/bin/ranlib
           export LD=/mingw64/bin/ld
 
-          echo "=== TEST GCC ==="
-          $CC --version
-
           ./configure \
             --target-list=xtensa-softmmu \
             --enable-system \
@@ -135,7 +132,8 @@ jobs:
             --enable-capstone \
             --extra-cflags="$EXTRA_CFLAGS" \
             --extra-ldflags="$EXTRA_LDFLAGS" \
-            --disable-werror
+            --disable-werror \
+            --meson=build_msys
 
       # ----------------------------
       # BUILD
