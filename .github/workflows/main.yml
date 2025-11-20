@@ -54,42 +54,54 @@ jobs:
         shell: bash
         run: echo "PATH=/mingw64/bin:/usr/bin:/bin" >> $GITHUB_ENV
 
-      # ----------------------------
-      # SHIMS — AGORA EM DIRETÓRIO FIXO (CI_SHIMS)
-      # ----------------------------
-      - name: Criar shims (persistentes)
+      # =========================================
+      # SHIMS — criar DENTRO DO MSYS2 corretamente
+      # =========================================
+      - name: Criar shims (MSYS2-safe)
         shell: msys2 {0}
         run: |
           export PATH="/mingw64/bin:/usr/bin:/bin:$PATH"
 
-          mkdir -p ci_shims
+          # Diretório que REALMENTE existe dentro do MSYS2
+          mkdir -p build/ci_shims
 
-          echo '#ifndef CI_SIMULIDE_SHIMS_H
+          # Criar header
+          cat > build/ci_shims/ci_shims.h << 'EOF'
+          #ifndef CI_SIMULIDE_SHIMS_H
           #define CI_SIMULIDE_SHIMS_H
           void stm32_f103c8_uart_action(void);
           void stm32_f103c8_timer_action(void);
-          #endif' > ci_shims/ci_shims.h
+          #endif
+          EOF
 
-          echo 'void stm32_f103c8_uart_action(void) {}
-          void stm32_f103c8_timer_action(void) {}' > ci_shims/ci_shims.c
+          # Criar código
+          cat > build/ci_shims/ci_shims.c << 'EOF'
+          void stm32_f103c8_uart_action(void) {}
+          void stm32_f103c8_timer_action(void) {}
+          EOF
 
-          x86_64-w64-mingw32-gcc -m64 -c ci_shims/ci_shims.c -o ci_shims/ci_shims.o
-          x86_64-w64-mingw32-gcc-ar rcs ci_shims/libci_shims.a ci_shims/ci_shims.o
+          # Compilar dentro do MSYS2
+          x86_64-w64-mingw32-gcc -m64 -c build/ci_shims/ci_shims.c -o build/ci_shims/ci_shims.o
+          x86_64-w64-mingw32-gcc-ar rcs build/ci_shims/libci_shims.a build/ci_shims/ci_shims.o
 
-      # ----------------------------
-      # CONFIGURE
-      # ----------------------------
+          echo "Shims criados em:"
+          ls -l build/ci_shims
+
+
+      # =========================================
+      # CONFIGURE USANDO CAMINHOS MSYS2 CORRETOS
+      # =========================================
       - name: Configure QEMU
         shell: msys2 {0}
-        env:
-          SLIRP_FLAG: ${{ env.SLIRP_FLAG }}
         run: |
           export PATH="/mingw64/bin:/usr/bin:/bin:$PATH"
 
+          SHIMS_DIR="$(pwd)/build/ci_shims"
           ARENA="-I$(pwd)/hw/arena"
-          SHIMINC="-include $(pwd)/ci_shims/ci_shims.h"
-          EXTRA_CFLAGS="$ARENA $SHIMINC ${{ env.CFLAGS_BASE }} ${{ env.SLIRP_CPPFLAGS }}"
-          EXTRA_LDFLAGS="${{ env.SLIRP_LDFLAGS }} $(pwd)/ci_shims/libci_shims.a"
+          SHIMINC="-include ${SHIMS_DIR}/ci_shims.h"
+
+          EXTRA_CFLAGS="$ARENA $SHIMINC -Daction=simuAction -Dtime=simuTime"
+          EXTRA_LDFLAGS="${SHIMS_DIR}/libci_shims.a"
 
           CC=x86_64-w64-mingw32-gcc \
           CXX=x86_64-w64-mingw32-g++ \
@@ -105,7 +117,6 @@ jobs:
             --enable-capstone \
             --extra-cflags="$EXTRA_CFLAGS" \
             --extra-ldflags="$EXTRA_LDFLAGS" \
-            ${SLIRP_FLAG:-} \
             --disable-werror
 
       # ----------------------------
