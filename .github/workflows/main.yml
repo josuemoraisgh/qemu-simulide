@@ -1,4 +1,4 @@
-name: MinGW Build & Release (qemu-simulide - GCC)
+name: MinGW Build & Release (qemu-simulide - GCC Only)
 
 on:
   workflow_dispatch:
@@ -29,23 +29,21 @@ jobs:
       CFLAGS: -Daction=simuAction -Dtime=simuTime
 
     steps:
-      - name: Habilitar long paths no Git
+      - name: Enable long paths
         run: |
           git config --system core.longpaths true
           git config --global core.longpaths true
 
-      - name: Checkout (sem submódulos)
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: false
           fetch-depth: 0
-          persist-credentials: true
 
-      # ============================================================================
-      # (1) MSYS2 + MinGW64 GCC TOOLCHAIN
-      # ============================================================================
-
-      - name: Setup MSYS2 (MINGW64)
+      # ============================================================
+      # Install MSYS2 + GCC ONLY (NO CLANG/LLVM!)
+      # ============================================================
+      - name: Setup MSYS2
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -65,92 +63,67 @@ jobs:
             mingw-w64-x86_64-capstone
             mingw-w64-x86_64-ninja
             mingw-w64-x86_64-meson
-            mingw-w64-x86_64-ntldd
-            mingw-w64-x86_64-bzip2
             mingw-w64-x86_64-binutils
+            mingw-w64-x86_64-ntldd
 
-      - name: Versões das ferramentas
+      - name: Tool versions
         shell: msys2 {0}
         run: |
-          which gcc && gcc --version
-          which g++ && g++ --version
-          which python3 && python3 --version
-          which meson && meson --version
-          which ninja && ninja --version
-          which ntldd && ntldd --version
-          pkg-config --version || true
-          echo "MSYSTEM=$MSYSTEM"
+          gcc --version
+          g++ --version
+          python3 --version
+          meson --version
+          ninja --version
+          pkg-config --version
 
-      # Limpeza total antes do configure
-      - name: Limpar variáveis que alteram o configure
+      # ============================================================
+      # Clean environment
+      # ============================================================
+      - name: Clean environment
         shell: msys2 {0}
         run: |
-          set -euxo pipefail
-          for v in QEMU_CONFIGURE_OPTS QEMU_CONFIGURE_FLAGS CONFIGURE_OPTS CONFIGURE_FLAGS CPPFLAGS LDFLAGS; do
-            unset "$v" || true
-          done
           rm -rf build config.log meson-private meson-info || true
 
-      # ============================================================================
-      # (2) Detectar libslirp
-      # ============================================================================
-
-      - name: Detectar libslirp (enable/disable + flags)
+      # ============================================================
+      # Detect libslirp
+      # ============================================================
+      - name: Detect slirp
         shell: msys2 {0}
         run: |
-          set -euo pipefail
-          SLIRP_PKG=""
-          if pkg-config --exists libslirp; then SLIRP_PKG="libslirp"; fi
-          if [ -z "$SLIRP_PKG" ] && pkg-config --exists slirp; then SLIRP_PKG="slirp"; fi
-          if [ -n "$SLIRP_PKG" ]; then
-            echo "SLIRP_FLAG=--enable-slirp" >> "$GITHUB_ENV"
-            CF="$(pkg-config --cflags "$SLIRP_PKG" || true)"
-            LF="$(pkg-config --libs "$SLIRP_PKG" || true)"
-            echo "SLIRP_CPPFLAGS=${CF}" >> "$GITHUB_ENV"
-            echo "SLIRP_LDFLAGS=${LF}" >> "$GITHUB_ENV"
-            echo "libslirp detectado ($SLIRP_PKG). Flags: ${CF} | ${LF}"
+          if pkg-config --exists libslirp; then
+            echo "SLIRP_FLAG=--enable-slirp" >> $GITHUB_ENV
+            echo "SLIRP_CPPFLAGS=$(pkg-config --cflags libslirp)" >> $GITHUB_ENV
+            echo "SLIRP_LDFLAGS=$(pkg-config --libs libslirp)" >> $GITHUB_ENV
           else
-            echo "SLIRP_FLAG=--disable-slirp" >> "$GITHUB_ENV"
-            echo "SLIRP_CPPFLAGS=" >> "$GITHUB_ENV"
-            echo "SLIRP_LDFLAGS=" >> "$GITHUB_ENV"
-            echo "libslirp NÃO detectado; slirp será desabilitado."
+            echo "SLIRP_FLAG=--disable-slirp" >> $GITHUB_ENV
+            echo "SLIRP_CPPFLAGS=" >> $GITHUB_ENV
+            echo "SLIRP_LDFLAGS=" >> $GITHUB_ENV
           fi
 
-      # ============================================================================
-      # (3) Criar SHIMS (agora com GCC!)
-      # ============================================================================
-
-      - name: Criar shims (protótipos + lib estática)
+      # ============================================================
+      # Create shims (GCC ONLY)
+      # ============================================================
+      - name: Create shims
         shell: msys2 {0}
         run: |
-          set -euo pipefail
-
-          cat > /tmp/ci_shims.h << 'EOF'
-          #ifndef CI_SIMULIDE_SHIMS_H
-          #define CI_SIMULIDE_SHIMS_H
+          echo '#ifndef CI_SHIMS_H
+          #define CI_SHIMS_H
           void stm32_f103c8_uart_action(void);
           void stm32_f103c8_timer_action(void);
-          #endif
-          EOF
+          #endif' > /tmp/ci_shims.h
 
-          cat > /tmp/ci_shims.c << 'EOF'
-          void stm32_f103c8_uart_action(void) {}
-          void stm32_f103c8_timer_action(void) {}
-          EOF
+          echo 'void stm32_f103c8_uart_action(void) {}
+          void stm32_f103c8_timer_action(void) {}' > /tmp/ci_shims.c
 
           gcc -m64 -c /tmp/ci_shims.c -o /tmp/ci_shims.o
           gcc-ar rcs /tmp/libci_shims.a /tmp/ci_shims.o
 
-          echo "Shims prontos: /tmp/ci_shims.h e /tmp/libci_shims.a"
-
-      # ============================================================================
-      # (4) CONFIGURE — AGORA 100% CORRETO (SEM SAFE-STACK, SEM MESON CONFIGURE)
-      # ============================================================================
-
-      - name: Configure (QEMU)
+      # ============================================================
+      # CONFIGURE (NO CLANG, NO SAFE-STACK, NO MESON CONFIGURE!)
+      # ============================================================
+      - name: Configure QEMU (GCC)
         shell: msys2 {0}
         env:
-          PKG_CONFIG_PATH: /mingw64/lib/pkgconfig:/usr/lib/pkgconfig
           CC: gcc
           CXX: g++
           LD: ld
@@ -159,131 +132,69 @@ jobs:
           RANLIB: gcc-ranlib
           SLIRP_FLAG: ${{ env.SLIRP_FLAG }}
         run: |
-          set -euxo pipefail
-          test -f ./configure
           ./configure --target-list=xtensa-softmmu \
             --extra-cflags="-fPIC -include /tmp/ci_shims.h ${{ env.SLIRP_CPPFLAGS }}" \
             --extra-ldflags="${{ env.SLIRP_LDFLAGS }} /tmp/libci_shims.a" \
             ${SLIRP_FLAG} \
             --enable-sdl \
             --enable-capstone \
-            --disable-attr --disable-auth-pam --disable-avx2 --disable-avx512bw \
-            --disable-blkio --disable-bochs --disable-bpf --disable-brlapi \
-            --disable-bzip2 --disable-canokey --disable-cap-ng \
-            --disable-cloop --disable-cocoa --disable-colo-proxy --disable-coreaudio \
-            --disable-crypto-afalg --disable-curl --disable-curses --disable-dbus-display \
-            --disable-dmg --disable-docs --disable-dsound --disable-fuse --disable-fuse-lseek \
-            --disable-gettext --disable-gio --disable-glusterfs \
-            --disable-gnutls --disable-gtk --disable-gtk-clipboard --disable-guest-agent \
-            --disable-guest-agent-msi --disable-hvf --disable-iconv --disable-jack \
-            --disable-keyring --disable-kvm --disable-l2tpv3 --disable-libdaxctl \
-            --disable-libdw --disable-libiscsi --disable-libkeyutils --disable-libnfs \
-            --disable-libpmem --disable-libssh --disable-libudev --disable-libusb \
-            --disable-libvduse --disable-linux-aio --disable-linux-io-uring --disable-lzfse \
-            --disable-lzo --disable-malloc-trim --disable-membarrier --disable-modules \
-            --disable-mpath --disable-multiprocess --disable-netmap --disable-nettle \
-            --disable-numa --disable-nvmm --disable-opengl --disable-oss --disable-pa \
-            --disable-parallels --disable-pipewire --disable-png --disable-qcow1 \
-            --disable-qed --disable-qga-vss --disable-rbd --disable-rdma --disable-replication \
-            --disable-sdl-image --disable-seccomp --disable-selinux \
-            --disable-smartcard --disable-snappy --disable-sndio --disable-sparse \
-            --disable-spice --disable-spice-protocol --disable-stack-protector \
-            --disable-tools --disable-tpm --disable-u2f --disable-usb-redir \
-            --disable-vde --disable-vdi --disable-vhdx --disable-vhost-crypto \
-            --disable-vhost-kernel --disable-vhost-net --disable-vhost-user --disable-vhost-vdpa \
-            --disable-virglrenderer --disable-virtfs --disable-vmdk --disable-vmnet \
-            --disable-vnc --disable-vnc-jpeg --disable-vnc-sasl --disable-vpc \
-            --disable-vte --disable-vvfat --disable-whpx --disable-xen --disable-xkbcommon \
-            --disable-zstd \
-            --enable-tcg --enable-system \
-            --disable-werror
+            --disable-docs --disable-tools \
+            --disable-werror \
+            --enable-system --enable-tcg
 
-      # ============================================================================
-      # (5) BUILD
-      # ============================================================================
+      # ============================================================
+      # BUILD
+      # ============================================================
+      - name: Build
+        shell: msys2 {0}
+        run: ninja -C build -v
 
-      - name: Build (ninja)
+      # ============================================================
+      # Validate symbol
+      # ============================================================
+      - name: Check shim symbol
         shell: msys2 {0}
         run: |
-          set -Eeuo pipefail
-          ninja -C build -v
+          LIBA=$(find build -name libcommon.a)
+          nm "$LIBA" | grep -q stm32_f103c8_uart_action || exit 1
 
-      # ============================================================================
-      # (6) verificação, bundle, zip, release… (seu código original permanece)
-      # ============================================================================
-
-      - name: Verificar símbolo stm32_f103c8_uart_action
+      # ============================================================
+      # Prepare bundle
+      # ============================================================
+      - name: Bundle
         shell: msys2 {0}
         run: |
-          LIBA="$(find build -type f -name 'libcommon.a' -print -quit || true)"
-          if [ -z "$LIBA" ]; then exit 0; fi
-          llvm-nm -g "$LIBA" | grep -q ' stm32_f103c8_uart_action$' || exit 86
-
-      - name: Preparar bundle (EXEs + DLLs)
-        shell: msys2 {0}
-        run: |
-          set -euo pipefail
-          EXE_PATH="$(find build -type f -name 'qemu-system-xtensa*.exe' -print -quit)"
-          BIN_DIR="$(dirname "${EXE_PATH}")"
-          rm -rf bundle
+          EXE=$(find build -name 'qemu-system-xtensa*.exe' | head -n1)
           mkdir -p bundle
-          cp -v "${BIN_DIR}"/qemu*.exe bundle/ || true
-
-          if [ -d "pc-bios" ]; then
-            mkdir -p bundle/pc-bios
-            cp -r pc-bios/* bundle/pc-bios/ || true
-          fi
-
-          TMP_DEPS="$(mktemp)"
-          for exe in bundle/*.exe; do
-            ntldd -R "$exe" | awk '/=>/ && /\.dll/ {gsub("\\\\","/"); print $3}' >> "${TMP_DEPS}"
-          done
-          sort -u "${TMP_DEPS}" | while read dll; do
+          cp "$EXE" bundle/
+          ntldd -R "$EXE" | awk '/=>/ {print $3}' | while read dll; do
             [ -f "$dll" ] && cp -n "$dll" bundle/
           done
 
-          for dll in \
-            libwinpthread-1.dll libstdc++-6.dll libgcc_s_seh-1.dll \
-            libglib-2.0-0.dll libgobject-2.0-0.dll libgmodule-2.0-0.dll libgthread-2.0-0.dll \
-            libintl-8.dll libiconv-2.dll libpcre2-8-0.dll libpixman-1-0.dll \
-            libgcrypt-20.dll zlib1.dll SDL2.dll libcapstone.dll; do
-            [ -f "/mingw64/bin/$dll" ] && cp -n "/mingw64/bin/$dll" bundle/
-          done
-
-      - name: Gerar ZIP
+      - name: ZIP
         shell: pwsh
-        run: |
-          if (Test-Path "${{ env.ZIP_NAME }}") { Remove-Item "${{ env.ZIP_NAME }}" }
-          Compress-Archive -Path bundle\* -DestinationPath "${{ env.ZIP_NAME }}"
+        run: Compress-Archive -Path bundle\* -DestinationPath "${{ env.ZIP_NAME }}"
 
-      - name: Upload artifact (CI)
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ZIP_NAME }}
           path: ${{ env.ZIP_NAME }}
-          if-no-files-found: error
 
-      - name: Criar e enviar tag
+      # ============================================================
+      # Tag + Release
+      # ============================================================
+      - name: Create tag
         shell: bash
         env:
           TAG_NAME: ${{ inputs.version }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euxo pipefail
-          git config --global --add safe.directory "$PWD"
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch --tags --force --prune
-          git tag -fa "${TAG_NAME}" -m "Release ${TAG_NAME}" || true
-          git push origin "${TAG_NAME}" --force
+          git tag -fa "$TAG_NAME" -m "Release $TAG_NAME" || true
+          git push origin "$TAG_NAME" --force
 
-      - name: Criar Release
+      - name: Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.version }}
-          name: qemu-simulide ${{ inputs.version }}
-          body: ${{ inputs.notes }}
-          prerelease: ${{ inputs.prerelease }}
           files: ${{ env.ZIP_NAME }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
