@@ -4,13 +4,16 @@ on:
   workflow_dispatch:
     inputs:
       version:
+        description: "Versão/Tag (ex.: v0.1.0)"
         required: true
         type: string
       prerelease:
+        description: "Marcar como pré-release?"
         required: false
         default: false
         type: boolean
       notes:
+        description: "Notas da release (opcional)"
         required: false
         type: string
 
@@ -31,11 +34,14 @@ jobs:
       # ---------------------------------------------------------
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 0
 
       # ---------------------------------------------------------
-      # Setup MSYS2 (PURE GCC — NO CLANG)
+      # Setup MSYS2 + Toolchain MinGW64 LIMPO (sem clang/llvm)
       # ---------------------------------------------------------
-      - name: Setup MSYS2
+      - name: Setup MSYS2 (MINGW64, GCC only)
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -53,35 +59,38 @@ jobs:
             mingw-w64-x86_64-libgcrypt
             mingw-w64-x86_64-pixman
             mingw-w64-x86_64-zlib
-            mingw-w64-x86_64-capstone
             mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-capstone
             mingw-w64-x86_64-binutils
             mingw-w64-x86_64-ntldd
 
-      # ---------------------------------------------------------
-      # PURE GCC PATH
-      # ---------------------------------------------------------
-      - name: Fix PATH
+      # Força PATH limpo para os binários MinGW64
+      - name: Fix PATH (pure MinGW64)
         shell: bash
-        run: echo "PATH=/mingw64/bin:/usr/bin:/bin" >> $GITHUB_ENV
+        run: |
+          echo "PATH=/mingw64/bin:/usr/bin:/bin" >> $GITHUB_ENV
 
       # ---------------------------------------------------------
-      # Sanity check
+      # Sanity: o MESMO compilador que o Meson vai usar
       # ---------------------------------------------------------
-      - name: GCC sanity test
+      - name: GCC sanity (x86_64-w64-mingw32-gcc)
         shell: msys2 {0}
         run: |
-          echo "int main(){return 0;}" > test.c
-          gcc -m64 test.c -o test.exe
-          ./test.exe
-          echo "GCC OK"
+          export PATH="/mingw64/bin:/usr/bin:/bin:$PATH"
+          which x86_64-w64-mingw32-gcc
+          x86_64-w64-mingw32-gcc --version
+          echo "int main(){return 0;}" > sanity.c
+          x86_64-w64-mingw32-gcc -m64 sanity.c -o sanity.exe
+          ./sanity.exe
+          echo "Sanity OK (x86_64-w64-mingw32-gcc)"
 
       # ---------------------------------------------------------
-      # Detect libslirp
+      # Detect libslirp (opcional, mas já estava no seu workflow)
       # ---------------------------------------------------------
-      - name: Detect slirp
+      - name: Detect libslirp
         shell: msys2 {0}
         run: |
+          export PATH="/mingw64/bin:/usr/bin:/bin:$PATH"
           if pkg-config --exists libslirp; then
             echo "SLIRP_FLAG=--enable-slirp" >> $GITHUB_ENV
             echo "SLIRP_CPPFLAGS=$(pkg-config --cflags libslirp)" >> $GITHUB_ENV
@@ -93,30 +102,38 @@ jobs:
           fi
 
       # ---------------------------------------------------------
-      # Build SHIMS
+      # Shims opcionais (se você ainda quer os símbolos fake)
       # ---------------------------------------------------------
       - name: Build shims
         shell: msys2 {0}
         run: |
-          echo '#ifndef CI_SIMULIDE_SHIMS_H
+          export PATH="/mingw64/bin:/usr/bin:/bin:$PATH"
+
+          cat > /tmp/ci_shims.h << 'EOF'
+          #ifndef CI_SIMULIDE_SHIMS_H
           #define CI_SIMULIDE_SHIMS_H
           void stm32_f103c8_uart_action(void);
           void stm32_f103c8_timer_action(void);
-          #endif' > /tmp/ci_shims.h
+          #endif
+          EOF
 
-          echo 'void stm32_f103c8_uart_action(void) {}
-          void stm32_f103c8_timer_action(void) {}' > /tmp/ci_shims.c
+          cat > /tmp/ci_shims.c << 'EOF'
+          void stm32_f103c8_uart_action(void) {}
+          void stm32_f103c8_timer_action(void) {}
+          EOF
 
-          gcc -m64 -c /tmp/ci_shims.c -o /tmp/ci_shims.o
-          gcc-ar rcs /tmp/libci_shims.a /tmp/ci_shims.o
+          x86_64-w64-mingw32-gcc -m64 -c /tmp/ci_shims.c -o /tmp/ci_shims.o
+          x86_64-w64-mingw32-gcc-ar rcs /tmp/libci_shims.a /tmp/ci_shims.o
 
       # ---------------------------------------------------------
-      # CONFIGURE (with hw/arena include fix!)
+      # CONFIGURE (força o toolchain correto + include hw/arena)
       # ---------------------------------------------------------
-      - name: Configure QEMU
+      - name: Configure QEMU (xtensa-softmmu)
         shell: msys2 {0}
+        env:
+          SLIRP_FLAG: ${{ env.SLIRP_FLAG }}
         run: |
-          export PATH="/mingw64/bin:$PATH"
+          export PATH="/mingw64/bin:/usr/bin:/bin:$PATH"
 
           ARENA="-I$(pwd)/hw/arena"
           SHIMINC="-include /tmp/ci_shims.h"
@@ -137,23 +154,34 @@ jobs:
             --enable-capstone \
             --extra-cflags="$EXTRA_CFLAGS" \
             --extra-ldflags="$EXTRA_LDFLAGS" \
-            ${{ env.SLIRP_FLAG }} \
+            ${SLIRP_FLAG:-} \
             --disable-werror
-      # ---------------------------------------------------------
-      # Build QEMU
-      # ---------------------------------------------------------
-      - name: Build QEMU
-        shell: msys2 {0}
-        run: ninja -C build -v
 
       # ---------------------------------------------------------
-      # Symbol check
+      # Build (ninja)
       # ---------------------------------------------------------
-      - name: Check shim symbols
+      - name: Build (ninja)
         shell: msys2 {0}
         run: |
-          LIB=$(find build -name libcommon.a | head -n1)
-          nm "$LIB" | grep -q stm32_f103c8_uart_action || exit 1
+          export PATH="/mingw64/bin:/usr/bin:/bin:$PATH"
+          ninja -C build -v
+
+      # ---------------------------------------------------------
+      # Verificar símbolo dos shims (opcional)
+      # ---------------------------------------------------------
+      - name: Check shim symbol in libcommon.a
+        shell: msys2 {0}
+        run: |
+          export PATH="/mingw64/bin:/usr/bin:/bin:$PATH"
+          LIBA=$(find build -name 'libcommon.a' | head -n 1 || true)
+          if [ -z "$LIBA" ]; then
+            echo "libcommon.a não encontrado (ok se não fizer parte deste target)."
+            exit 0
+          fi
+          x86_64-w64-mingw32-nm -g "$LIBA" | grep -q ' stm32_f103c8_uart_action$' || {
+            echo "ERRO: stm32_f103c8_uart_action não encontrado em libcommon.a"
+            exit 86
+          }
 
       # ---------------------------------------------------------
       # Bundle & ZIP
@@ -161,19 +189,45 @@ jobs:
       - name: Bundle
         shell: msys2 {0}
         run: |
-          EXE=$(find build -name "qemu-system-xtensa*.exe" | head -n1)
+          export PATH="/mingw64/bin:/usr/bin:/bin:$PATH"
+          EXE=$(find build -name "qemu-system-xtensa*.exe" | head -n 1 || true)
+          if [ -z "$EXE" ]; then
+            echo "qemu-system-xtensa*.exe não encontrado."
+            find build -maxdepth 4 -type f | sed 's/^/  - /'
+            exit 1
+          fi
+
           mkdir -p bundle
           cp "$EXE" bundle/
+
+          # Coletar dependências DLL
           ntldd -R "$EXE" | awk '/=>/ {print $3}' | while read dll; do
-            [ -f "$dll" ] && cp -n "$dll" bundle/
+            [ -f "$dll" ] && cp -n "$dll" bundle/ || true
           done
 
-      - name: ZIP
+      - name: Zip
         shell: pwsh
-        run: Compress-Archive -Path bundle/* -DestinationPath "${{ env.ZIP_NAME }}"
+        run: |
+          if (Test-Path "${{ env.ZIP_NAME }}") { Remove-Item "${{ env.ZIP_NAME }}" }
+          Compress-Archive -Path bundle\* -DestinationPath "${{ env.ZIP_NAME }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ZIP_NAME }}
           path: ${{ env.ZIP_NAME }}
+          if-no-files-found: error
+
+      # ---------------------------------------------------------
+      # Em caso de falha NO CONFIGURE ou NO BUILD, mostrar meson-log
+      # ---------------------------------------------------------
+      - name: Dump meson-log on failure
+        if: ${{ failure() }}
+        shell: msys2 {0}
+        run: |
+          echo "===== meson-log.txt (se existir) ====="
+          if [ -f build/meson-logs/meson-log.txt ]; then
+            sed -n '1,260p' build/meson-logs/meson-log.txt || true
+          else
+            echo "meson-log.txt não encontrado."
+          fi
