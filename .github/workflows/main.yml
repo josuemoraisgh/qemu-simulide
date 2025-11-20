@@ -87,26 +87,18 @@ jobs:
           echo "Shims criados em:"
           ls -l build/ci_shims
 
-      - name: Limpar diretório build/
-        shell: msys2 {0}
+      
+      - name: Limpar build (PowerShell)
+        shell: pwsh
         run: |
-          rm -rf build
-          
-      - name: Garantir build limpo
-        shell: msys2 {0}
-        run: |
-          if [ -d build ]; then
-            echo "Removendo diretório build antigo..."
-            rm -rf build
-          fi
+          Write-Host "Limpando diretório build via PowerShell..."
+          if (Test-Path "build") {
+            Remove-Item -Recurse -Force "build"
+          }
 
-      # =========================================
-      # CONFIGURE USANDO CAMINHOS MSYS2 CORRETOS
-      # =========================================
       - name: Configure QEMU (FORÇANDO gcc MinGW64)
         shell: msys2 {0}
         run: |
-          # REMOVE gcc POSIX
           export PATH="/mingw64/bin:/usr/bin:/bin"
           hash -r
 
@@ -114,7 +106,7 @@ jobs:
           which gcc
           gcc --version
 
-          # LIMPAR build antigo
+          # garantir remoção dentro do msys2 também
           rm -rf build
           mkdir -p build/ci_shims
 
@@ -125,7 +117,6 @@ jobs:
           EXTRA_CFLAGS="$ARENA $SHIMINC -Daction=simuAction -Dtime=simuTime"
           EXTRA_LDFLAGS="${SHIMS_DIR}/libci_shims.a"
 
-          # COMPILADOR FORÇADO
           export CC=/mingw64/bin/gcc
           export CXX=/mingw64/bin/g++
           export AR=/mingw64/bin/ar
@@ -145,6 +136,7 @@ jobs:
             --extra-cflags="$EXTRA_CFLAGS" \
             --extra-ldflags="$EXTRA_LDFLAGS" \
             --disable-werror
+
       # ----------------------------
       # BUILD
       # ----------------------------
