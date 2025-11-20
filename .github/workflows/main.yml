@@ -115,12 +115,12 @@ jobs:
           EXTRA_CFLAGS="$ARENA $SHIMINC -Daction=simuAction -Dtime=simuTime"
           EXTRA_LDFLAGS="${SHIMS_DIR}/libci_shims.a"
 
-          CC=x86_64-w64-mingw32-gcc \
-          CXX=x86_64-w64-mingw32-g++ \
-          AR=x86_64-w64-mingw32-gcc-ar \
-          NM=x86_64-w64-mingw32-gcc-nm \
-          RANLIB=x86_64-w64-mingw32-gcc-ranlib \
-          LD=x86_64-w64-mingw32-ld \
+          CC=gcc \
+          CXX=g++ \
+          AR=ar \
+          NM=nm \
+          RANLIB=ranlib \
+          LD=ld \
           ./configure \
             --target-list=xtensa-softmmu \
             --enable-system \
@@ -130,7 +130,6 @@ jobs:
             --extra-cflags="$EXTRA_CFLAGS" \
             --extra-ldflags="$EXTRA_LDFLAGS" \
             --disable-werror
-
       # ----------------------------
       # BUILD
       # ----------------------------
