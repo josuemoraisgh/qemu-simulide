@@ -19,10 +19,21 @@
 
 static int i2c_id = 0;
 
+enum sim_i2c_action {
+    SIM_I2C_START_READ=1,
+    SIM_I2C_START_WRITE,
+    SIM_I2C_START_WRITE_ASYNC,
+    SIM_I2C_STOP,
+    SIM_I2C_NOACK, /* Masker NACKed a receive byte.  */
+    SIM_I2C_WRITE,
+    SIM_I2C_READ,
+    SIM_I2C_MATCH,
+};
+
 typedef struct I2cIface {
     I2CSlave i2c;
     uint8_t device_addr;
-    uint8_t id;
+    uint8_t number;
 } I2cIface;
 
 #define TYPE_I2C_IFACE "i2c_iface"
@@ -35,11 +46,11 @@ static void i2c_iface_reset( DeviceState *dev ) {
 static uint8_t i2c_iface_rx( I2CSlave *i2c )
 {
     //I2cIface *s = I2C_IFACE(i2c);
-    uint64_t qemuTime = getQemu_ps();
-    if( !m_arena->running ) return 0;
+    //uint64_t qemuTime = getQemu_ps();
+    //if( !m_arena->running ) return 0;
     //printf("i2c_rx %lu\n", qemuTime/1000000 );fflush( stdout );
 
-    m_arena->simuTime = qemuTime;
+    //m_arena->simuTime = qemuTime;
     return 0;
 }
 
@@ -47,15 +58,14 @@ static int i2c_iface_tx( I2CSlave *i2c, uint8_t data )
 {
     I2cIface* i2cI = I2C_IFACE(i2c);
 
-    uint64_t qemuTime = getQemu_ps();
     //printf("i2c_tx %i %lu\n", data, qemuTime/1000000 );fflush( stdout );
     if( !m_arena->running ) return 0;
 
     m_arena->simuAction = SIM_I2C;
     m_arena->data8  = SIM_I2C_WRITE;
-    m_arena->data16 = i2cI->id;
+    m_arena->data16 = i2cI->number;
     m_arena->data32 = data;
-    m_arena->simuTime = qemuTime;
+    doAction();
 
     return 0;
 }
@@ -64,14 +74,13 @@ static int i2c_iface_ev( I2CSlave *i2c, enum i2c_event event )
 {
     I2cIface* i2cI = I2C_IFACE(i2c);
 
-    uint64_t qemuTime = getQemu_ps();
     //printf("i2c_ev %i %lu\n", event, qemuTime/1000000 );fflush( stdout );
     if( !m_arena->running ) return 0;
 
     m_arena->simuAction = SIM_I2C;
     m_arena->data8  = event;
-    m_arena->data16 = i2cI->id;
-    m_arena->simuTime = qemuTime;
+    m_arena->data16 = i2cI->number;
+    doAction();
 
     return 0;
 }
@@ -82,14 +91,13 @@ static bool i2c_iface_match( I2CSlave *candidate, uint8_t address, bool b, I2CNo
     I2cIface* i2cI = I2C_IFACE( candidate );
     //printf("i2c_match %i\n", address );fflush( stdout );
 
-    uint64_t qemuTime = getQemu_ps();
     if( !m_arena->running ) return false;
 
     m_arena->simuAction = SIM_I2C;
     m_arena->data8  = SIM_I2C_MATCH;
-    m_arena->data16 = i2cI->id;
+    m_arena->data16 = i2cI->number;
     m_arena->data32 = address;
-    m_arena->simuTime = qemuTime;
+    doAction();
 
     // Always return true
     i2cI->device_addr = address;
@@ -103,7 +111,7 @@ static void i2c_iface_realize( DeviceState *dev, Error **errp )
 {
     I2CSlave *i2c = I2C_SLAVE(dev);
     I2cIface *s   = I2C_IFACE(i2c);
-    s->id = i2c_id++;
+    s->number = i2c_id++;
 }
 
 static const VMStateDescription vmstate_i2c_iface = {

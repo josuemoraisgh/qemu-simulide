@@ -79,6 +79,15 @@ enum {
     TIMER_DOWN_COUNT = 1
 };
 
+//enum simTimerAction{
+//    QTIMER_CR1=1,
+//    QTIMER_READ,
+//    QTIMER_WRITE,
+//    QTIMER_SET_FREQ,
+//    QTIMER_SET_LIMIT,
+//    QTIMER_OVF,
+//};
+
 typedef struct Stm32Timer Stm32Timer;
 
 typedef struct Stm32Channel {
@@ -123,7 +132,7 @@ struct Stm32Timer {
 
     Stm32Channel channels[4];
 
-    int id;
+    int number;
 
     uint8_t enabled;
     //int period;
@@ -640,48 +649,143 @@ void stm32_timer_remap( int number, uint8_t value )
 {
     //printf("stm32_timer_remap %i %i\n", number, value ); fflush( stdout );
     Stm32Timer* timer = stm32_get_timer( number );
+    if( !timer ) return;
+
     switch( number )
     {
-    case 1: break;
-    case 2: break;
-    case 3:
-    {
+    case 1:{
         switch ( value ) {
-        case 0:{       //00: No remap (CH1/PA6, CH2/PA7, CH3/PB0, CH4/PB1)
-            timer->channels[0].ioPort = 1;
-            timer->channels[0].ioPin  = 6;
-            timer->channels[1].ioPort = 1;
-            timer->channels[1].ioPin  = 7;
-            timer->channels[2].ioPort = 2;
-            timer->channels[2].ioPin  = 0;
-            timer->channels[3].ioPort = 2;
-            timer->channels[3].ioPin  = 1;
-        }break;
-        case 1: break; //01: Not used
-        case 2:{       //10: Partial remap (CH1/PB4, CH2/PB5, CH3/PB0, CH4/PB1)
-            timer->channels[0].ioPort = 2;
-            timer->channels[0].ioPin  = 4;
-            timer->channels[1].ioPort = 2;
-            timer->channels[1].ioPin  = 5;
-            timer->channels[2].ioPort = 2;
-            timer->channels[2].ioPin  = 0;
-            timer->channels[3].ioPort = 2;
-            timer->channels[3].ioPin  = 1;
-        }break;
-        case 3:{       //11: Full remap (CH1/PC6, CH2/PC7, CH3/PC8, CH4/PC9)
-            timer->channels[0].ioPort = 3;
-            timer->channels[0].ioPin  = 6;
-            timer->channels[1].ioPort = 3;
-            timer->channels[1].ioPin  = 7;
-            timer->channels[2].ioPort = 3;
-            timer->channels[2].ioPin  = 8;
-            timer->channels[3].ioPort = 3;
-            timer->channels[3].ioPin  = 9;
-        }break;
+            case 0:{       //00: No remap (ETR/PA12, CH1/PA8, CH2/PA9, CH3/PA10, CH4/PA11, BKIN/PB12, CH1N/PB13, CH2N/PB14, CH3N/PB15)
+                timer->channels[0].ioPort = 1;
+                timer->channels[0].ioPin  = 8;
+                timer->channels[1].ioPort = 1;
+                timer->channels[1].ioPin  = 9;
+                timer->channels[2].ioPort = 1;
+                timer->channels[2].ioPin  = 10;
+                timer->channels[3].ioPort = 1;
+                timer->channels[3].ioPin  = 11;
+            }break;
+            case 1:{       //01: Partial remap (ETR/PA12, CH1/PA8, CH2/PA9, CH3/PA10, CH4/PA11, BKIN/PA6, CH1N/PA7, CH2N/PB0, CH3N/PB1)
+                timer->channels[0].ioPort = 1;
+                timer->channels[0].ioPin  = 8;
+                timer->channels[1].ioPort = 1;
+                timer->channels[1].ioPin  = 9;
+                timer->channels[2].ioPort = 1;
+                timer->channels[2].ioPin  = 10;
+                timer->channels[3].ioPort = 1;
+                timer->channels[3].ioPin  = 11;
+            }break;
+            case 2: break; //10: not used
+            case 3:{       //11: Full remap (ETR/PE7, CH1/PE9, CH2/PE11, CH3/PE13, CH4/PE14, BKIN/PE15, CH1N/PE8, CH2N/PE10, CH3N/PE12)
+                timer->channels[0].ioPort = 5;
+                timer->channels[0].ioPin  = 9;
+                timer->channels[1].ioPort = 5;
+                timer->channels[1].ioPin  = 11;
+                timer->channels[2].ioPort = 5;
+                timer->channels[2].ioPin  = 13;
+                timer->channels[3].ioPort = 5;
+                timer->channels[3].ioPin  = 14;
+            }break;
         }
     }break;
-    case 4: break;
-    case 5: break;
+    case 2:{
+        switch ( value ) {
+            case 0:{       //00: No remap (CH1/ETR/PA0, CH2/PA1, CH3/PA2, CH4/PA3)
+                timer->channels[0].ioPort = 1;
+                timer->channels[0].ioPin  = 0;
+                timer->channels[1].ioPort = 1;
+                timer->channels[1].ioPin  = 1;
+                timer->channels[2].ioPort = 1;
+                timer->channels[2].ioPin  = 2;
+                timer->channels[3].ioPort = 1;
+                timer->channels[3].ioPin  = 3;
+            }break;
+            case 1:{       //01: Partial remap (CH1/ETR/PA15, CH2/PB3, CH3/PA2, CH4/PA3)
+                timer->channels[0].ioPort = 1;
+                timer->channels[0].ioPin  = 15;
+                timer->channels[1].ioPort = 2;
+                timer->channels[1].ioPin  = 3;
+                timer->channels[2].ioPort = 1;
+                timer->channels[2].ioPin  = 2;
+                timer->channels[3].ioPort = 1;
+                timer->channels[3].ioPin  = 3;
+            }break;
+            case 2:{       //10: Partial remap (CH1/ETR/PA0, CH2/PA1, CH3/PB10, CH4/PB11)
+                timer->channels[0].ioPort = 1;
+                timer->channels[0].ioPin  = 0;
+                timer->channels[1].ioPort = 1;
+                timer->channels[1].ioPin  = 1;
+                timer->channels[2].ioPort = 2;
+                timer->channels[2].ioPin  = 10;
+                timer->channels[3].ioPort = 2;
+                timer->channels[3].ioPin  = 11;
+            }break;
+            case 3:{       //11: Full remap (CH1/ETR/PA15, CH2/PB3, CH3/PB10, CH4/PB11)
+            }break;
+        }
+    }break;
+    case 3:{
+        switch ( value ) {
+            case 0:{       //00: No remap (CH1/PA6, CH2/PA7, CH3/PB0, CH4/PB1)
+                timer->channels[0].ioPort = 1;
+                timer->channels[0].ioPin  = 6;
+                timer->channels[1].ioPort = 1;
+                timer->channels[1].ioPin  = 7;
+                timer->channels[2].ioPort = 2;
+                timer->channels[2].ioPin  = 0;
+                timer->channels[3].ioPort = 2;
+                timer->channels[3].ioPin  = 1;
+            }break;
+            case 1: break; //01: Not used
+            case 2:{       //10: Partial remap (CH1/PB4, CH2/PB5, CH3/PB0, CH4/PB1)
+                timer->channels[0].ioPort = 2;
+                timer->channels[0].ioPin  = 4;
+                timer->channels[1].ioPort = 2;
+                timer->channels[1].ioPin  = 5;
+                timer->channels[2].ioPort = 2;
+                timer->channels[2].ioPin  = 0;
+                timer->channels[3].ioPort = 2;
+                timer->channels[3].ioPin  = 1;
+            }break;
+            case 3:{       //11: Full remap (CH1/PC6, CH2/PC7, CH3/PC8, CH4/PC9)
+                timer->channels[0].ioPort = 3;
+                timer->channels[0].ioPin  = 6;
+                timer->channels[1].ioPort = 3;
+                timer->channels[1].ioPin  = 7;
+                timer->channels[2].ioPort = 3;
+                timer->channels[2].ioPin  = 8;
+                timer->channels[3].ioPort = 3;
+                timer->channels[3].ioPin  = 9;
+            }break;
+        }
+    }break;
+    case 4:{
+        switch ( value ) {
+            case 0:{       // No remap (CH1/PB6, CH2/PB7, CH3/PB8, CH4/PB9)
+                timer->channels[0].ioPort = 2;
+                timer->channels[0].ioPin  = 6;
+                timer->channels[1].ioPort = 2;
+                timer->channels[1].ioPin  = 7;
+                timer->channels[2].ioPort = 2;
+                timer->channels[2].ioPin  = 8;
+                timer->channels[3].ioPort = 2;
+                timer->channels[3].ioPin  = 9;
+            }break;
+            case 1:{       // Full remap (CH1/PD12, CH2/PD13, CH3/PD14, CH4/PD15)
+                timer->channels[0].ioPort = 4;
+                timer->channels[0].ioPin  = 12;
+                timer->channels[1].ioPort = 4;
+                timer->channels[1].ioPin  = 13;
+                timer->channels[2].ioPort = 4;
+                timer->channels[2].ioPin  = 14;
+                timer->channels[3].ioPort = 4;
+                timer->channels[3].ioPin  = 15;
+            }break;
+        }
+    }break;
+    case 5:{
+
+    }break;
     }
 }
 
@@ -695,8 +799,8 @@ void stm32_timer_set_rcc(Stm32Timer *tim, Stm32Rcc* rcc){
 //    tim->stm32_afio = afio;
 //}
 
-void stm32_timer_set_id( Stm32Timer *tim, int tim_num ) {
-    tim->id = tim_num -1;
+void stm32_timer_set_number( Stm32Timer *tim, int tim_num ) {
+    tim->number= tim_num -1;
 }
 //---------------------------------------------------------------------------
 

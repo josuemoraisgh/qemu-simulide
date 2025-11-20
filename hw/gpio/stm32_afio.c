@@ -24,6 +24,8 @@
 #include "hw/hw.h"
 #include "qom/object.h"
 
+#include "../system/simuliface.h"
+
 /* DEFINITIONS */
 
 #define AFIO_EVCR_OFFSET 0x00
@@ -91,7 +93,10 @@ static void stm32_afio_MAPR_write( Stm32Afio *s, uint32_t mapr, bool init )
     stm32_timer_remap( 3, (s->AFIO_MAPR & AFIO_MAPR_TIM3_REMAP_MASK) >> AFIO_MAPR_TIM3_REMAP_START );
     stm32_timer_remap( 4, extract32(s->AFIO_MAPR, AFIO_MAPR_TIM4_REMAP_BIT, 1) );
 
-    /// TODO:UART, I2C, SPI
+    m_arena->simuAction = ARM_REMAP; // UART, I2C, SPI
+    m_arena->data32 = mapr;
+
+    doAction();
 }
 
 /* Write the External Interrupt Configuration Register.

@@ -52,7 +52,7 @@ struct Stm32Gpio {
     uint32_t GPIOx_ODR;
 
     uint16_t in;
-    uint8_t id;
+    uint8_t number;
 
     qemu_irq in_irq[STM32_GPIO_PIN_COUNT]; /* IRQs which relay input pin changes to other STM32 peripherals */
 };
@@ -71,7 +71,7 @@ static void stm32_gpio_in_trigger( void *opaque, int irq, int level )
     // Update internal pin state.
     s->in &= ~(1 << pin);
     s->in |= (level ? 1 : 0) << pin;
-    //printf("stm32_gpio_in_trigger PORT%c %i %i\n", 'A'+s->id, pin, level );fflush( stdout );
+    //printf("stm32_gpio_in_trigger PORT%c %i %i\n", 'A'+s->number, pin, level );fflush( stdout );
     qemu_set_irq( s->in_irq[pin], level ); // Propagate the trigger to the input IRQs.
     //printf("stm32_gpio_in_trigger IRQs fired\n");fflush( stdout );
 }
@@ -227,8 +227,8 @@ void stm32_gpio_set_rcc( Stm32Gpio *gpio, Stm32Rcc* rcc )
 {
     gpio->stm32_rcc = rcc;
 }
-void stm32_gpio_set_id(Stm32Gpio *gpio, int gpio_num) {
-    gpio->id = gpio_num;
+void stm32_gpio_set_number(Stm32Gpio *gpio, int gpio_num) {
+    gpio->number = gpio_num;
 }
 
 static Property stm32_gpio_properties[] = {
