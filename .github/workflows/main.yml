@@ -106,24 +106,26 @@ jobs:
       - name: Configure QEMU (FORÇANDO gcc MinGW64)
         shell: msys2 {0}
         run: |
-          # REMOVE gcc POSIX DO PATH
+          # REMOVE gcc POSIX
           export PATH="/mingw64/bin:/usr/bin:/bin"
           hash -r
 
           echo "=== WHICH GCC ==="
-          which gcc || echo "gcc NAO encontrado"
-          ls -l /mingw64/bin/gcc || true
+          which gcc
+          gcc --version
+
+          # LIMPAR build antigo
+          rm -rf build
+          mkdir -p build/ci_shims
 
           SHIMS_DIR="$(pwd)/build/ci_shims"
-          mkdir -p "$SHIMS_DIR"
-
           ARENA="-I$(pwd)/hw/arena"
           SHIMINC="-include ${SHIMS_DIR}/ci_shims.h"
 
           EXTRA_CFLAGS="$ARENA $SHIMINC -Daction=simuAction -Dtime=simuTime"
           EXTRA_LDFLAGS="${SHIMS_DIR}/libci_shims.a"
 
-          # FORÇA USAR SOMENTE O COMPILADOR DO MINGW64
+          # COMPILADOR FORÇADO
           export CC=/mingw64/bin/gcc
           export CXX=/mingw64/bin/g++
           export AR=/mingw64/bin/ar
@@ -132,7 +134,7 @@ jobs:
           export LD=/mingw64/bin/ld
 
           echo "=== TEST GCC ==="
-          $CC --version || echo "gcc do mingw64 NAO funciona!"
+          $CC --version
 
           ./configure \
             --target-list=xtensa-softmmu \
