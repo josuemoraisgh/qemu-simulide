@@ -1,127 +1,77 @@
-name: MinGW Build & Release (qemu-simulide - GCC Only)
+name: MinGW QEMU Pure-GCC Build
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Versão/Tag (ex.: v0.1.0)"
+        description: "Tag ex.: v0.1.0"
         required: true
-        type: string
-      prerelease:
-        description: "Marcar como pré-release?"
-        required: false
-        default: false
-        type: boolean
-      notes:
-        description: "Notas da release (opcional)"
-        required: false
         type: string
 
 permissions:
   contents: write
 
 jobs:
-  build-release:
+  build:
     runs-on: windows-latest
 
-    env:
-      ZIP_NAME: qemu-simulide-windows-mingw64-${{ inputs.version }}.zip
-      CFLAGS: -Daction=simuAction -Dtime=simuTime
-
     steps:
-      - name: Enable long paths
-        run: |
-          git config --system core.longpaths true
-          git config --global core.longpaths true
-
+      # -----------------------------
+      # Checkout
+      # -----------------------------
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: false
-          fetch-depth: 0
 
-      # ============================================================
-      # Install MSYS2 + GCC ONLY (NO CLANG/LLVM!)
-      # ============================================================
-      - name: Setup MSYS2
+      # -----------------------------
+      # Install a CLEAN MSYS2
+      # (NO CLANG / NO LLVM / NO LLD)
+      # -----------------------------
+      - name: Setup MSYS2 Pure GCC
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
           update: true
           install: >-
-            git
             base-devel
+            git
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-python
+            mingw-w64-x86_64-meson
+            mingw-w64-x86_64-ninja
             mingw-w64-x86_64-pkgconf
             mingw-w64-x86_64-glib2
             mingw-w64-x86_64-pixman
+            mingw-w64-x86_64-libslirp
             mingw-w64-x86_64-libgcrypt
             mingw-w64-x86_64-zlib
-            mingw-w64-x86_64-libslirp
             mingw-w64-x86_64-SDL2
             mingw-w64-x86_64-capstone
-            mingw-w64-x86_64-ninja
-            mingw-w64-x86_64-meson
             mingw-w64-x86_64-binutils
-            mingw-w64-x86_64-ntldd
 
-      - name: Tool versions
+      # -----------------------------
+      # FULL PATH RESET
+      # -----------------------------
+      - name: Fix PATH (force pure MinGW64)
+        shell: bash
+        run: |
+          echo "PATH=/mingw64/bin:/usr/bin:/bin" >> $GITHUB_ENV
+
+      # -----------------------------
+      # Verify GCC really works
+      # -----------------------------
+      - name: GCC sanity test
         shell: msys2 {0}
         run: |
-          gcc --version
-          g++ --version
-          python3 --version
-          meson --version
-          ninja --version
-          pkg-config --version
+          echo "int main(){return 0;}" > test.c
+          gcc -v
+          gcc test.c -o test.exe
+          ./test.exe
+          echo "GCC OK"
 
-      # ============================================================
-      # Clean environment
-      # ============================================================
-      - name: Clean environment
-        shell: msys2 {0}
-        run: |
-          rm -rf build config.log meson-private meson-info || true
-
-      # ============================================================
-      # Detect libslirp
-      # ============================================================
-      - name: Detect slirp
-        shell: msys2 {0}
-        run: |
-          if pkg-config --exists libslirp; then
-            echo "SLIRP_FLAG=--enable-slirp" >> $GITHUB_ENV
-            echo "SLIRP_CPPFLAGS=$(pkg-config --cflags libslirp)" >> $GITHUB_ENV
-            echo "SLIRP_LDFLAGS=$(pkg-config --libs libslirp)" >> $GITHUB_ENV
-          else
-            echo "SLIRP_FLAG=--disable-slirp" >> $GITHUB_ENV
-            echo "SLIRP_CPPFLAGS=" >> $GITHUB_ENV
-            echo "SLIRP_LDFLAGS=" >> $GITHUB_ENV
-          fi
-
-      # ============================================================
-      # Create shims (GCC ONLY)
-      # ============================================================
-      - name: Create shims
-        shell: msys2 {0}
-        run: |
-          echo '#ifndef CI_SHIMS_H
-          #define CI_SHIMS_H
-          void stm32_f103c8_uart_action(void);
-          void stm32_f103c8_timer_action(void);
-          #endif' > /tmp/ci_shims.h
-
-          echo 'void stm32_f103c8_uart_action(void) {}
-          void stm32_f103c8_timer_action(void) {}' > /tmp/ci_shims.c
-
-          gcc -m64 -c /tmp/ci_shims.c -o /tmp/ci_shims.o
-          gcc-ar rcs /tmp/libci_shims.a /tmp/ci_shims.o
-
-      # ============================================================
-      # CONFIGURE (NO CLANG, NO SAFE-STACK, NO MESON CONFIGURE!)
-      # ============================================================
-      - name: Configure QEMU (GCC)
+      # -----------------------------
+      # Configure QEMU
+      # -----------------------------
+      - name: Configure QEMU
         shell: msys2 {0}
         env:
           CC: gcc
@@ -130,71 +80,39 @@ jobs:
           AR: gcc-ar
           NM: gcc-nm
           RANLIB: gcc-ranlib
-          SLIRP_FLAG: ${{ env.SLIRP_FLAG }}
         run: |
-          ./configure --target-list=xtensa-softmmu \
-            --extra-cflags="-fPIC -include /tmp/ci_shims.h ${{ env.SLIRP_CPPFLAGS }}" \
-            --extra-ldflags="${{ env.SLIRP_LDFLAGS }} /tmp/libci_shims.a" \
-            ${SLIRP_FLAG} \
+          ./configure \
+            --target-list=xtensa-softmmu \
+            --enable-system \
+            --enable-tcg \
             --enable-sdl \
             --enable-capstone \
-            --disable-docs --disable-tools \
-            --disable-werror \
-            --enable-system --enable-tcg
+            --disable-werror
 
-      # ============================================================
-      # BUILD
-      # ============================================================
-      - name: Build
-        shell: msys2 {0}
-        run: ninja -C build -v
-
-      # ============================================================
-      # Validate symbol
-      # ============================================================
-      - name: Check shim symbol
+      # -----------------------------
+      # Build
+      # -----------------------------
+      - name: Build QEMU
         shell: msys2 {0}
         run: |
-          LIBA=$(find build -name libcommon.a)
-          nm "$LIBA" | grep -q stm32_f103c8_uart_action || exit 1
+          ninja -C build -v
 
-      # ============================================================
-      # Prepare bundle
-      # ============================================================
+      # -----------------------------
+      # Package
+      # -----------------------------
       - name: Bundle
         shell: msys2 {0}
         run: |
-          EXE=$(find build -name 'qemu-system-xtensa*.exe' | head -n1)
           mkdir -p bundle
-          cp "$EXE" bundle/
-          ntldd -R "$EXE" | awk '/=>/ {print $3}' | while read dll; do
-            [ -f "$dll" ] && cp -n "$dll" bundle/
-          done
+          cp build/qemu-system-xtensa*.exe bundle/
 
-      - name: ZIP
+      - name: Zip
         shell: pwsh
-        run: Compress-Archive -Path bundle\* -DestinationPath "${{ env.ZIP_NAME }}"
+        run: |
+          Compress-Archive -Path bundle/* -DestinationPath qemu-${{ inputs.version }}.zip
 
-      - name: Upload artifact
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.ZIP_NAME }}
-          path: ${{ env.ZIP_NAME }}
-
-      # ============================================================
-      # Tag + Release
-      # ============================================================
-      - name: Create tag
-        shell: bash
-        env:
-          TAG_NAME: ${{ inputs.version }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git tag -fa "$TAG_NAME" -m "Release $TAG_NAME" || true
-          git push origin "$TAG_NAME" --force
-
-      - name: Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ inputs.version }}
-          files: ${{ env.ZIP_NAME }}
+          name: qemu-${{ inputs.version }}
+          path: qemu-${{ inputs.version }}.zip
