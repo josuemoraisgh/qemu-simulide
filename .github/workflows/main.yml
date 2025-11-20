@@ -87,6 +87,18 @@ jobs:
           echo "Shims criados em:"
           ls -l build/ci_shims
 
+      - name: Limpar diretório build/
+        shell: msys2 {0}
+        run: |
+          rm -rf build
+          
+      - name: Garantir build limpo
+        shell: msys2 {0}
+        run: |
+          if [ -d build ]; then
+            echo "Removendo diretório build antigo..."
+            rm -rf build
+          fi
 
       # =========================================
       # CONFIGURE USANDO CAMINHOS MSYS2 CORRETOS
