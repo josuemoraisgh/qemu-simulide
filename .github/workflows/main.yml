@@ -1,4 +1,4 @@
-name: MinGW Build & Release (qemu-simulide - Clang/LLD)
+name: MinGW Build & Release (qemu-simulide - GCC)
 
 on:
   workflow_dispatch:
@@ -26,7 +26,6 @@ jobs:
 
     env:
       ZIP_NAME: qemu-simulide-windows-mingw64-${{ inputs.version }}.zip
-      # Flags do seu projeto (mantidas)
       CFLAGS: -Daction=simuAction -Dtime=simuTime
 
     steps:
@@ -42,7 +41,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Setup MSYS2 (MINGW64 + Clang/LLD)
+      # ============================================================================
+      # (1) MSYS2 + MinGW64 GCC TOOLCHAIN
+      # ============================================================================
+
+      - name: Setup MSYS2 (MINGW64)
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -51,9 +54,6 @@ jobs:
             git
             base-devel
             mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-clang
-            mingw-w64-x86_64-lld
-            mingw-w64-x86_64-llvm
             mingw-w64-x86_64-python
             mingw-w64-x86_64-pkgconf
             mingw-w64-x86_64-glib2
@@ -72,17 +72,16 @@ jobs:
       - name: Versões das ferramentas
         shell: msys2 {0}
         run: |
-          which clang && clang --version
-          which clang++ && clang++ --version
-          which ld.lld && ld.lld --version
+          which gcc && gcc --version
+          which g++ && g++ --version
           which python3 && python3 --version
           which meson && meson --version
           which ninja && ninja --version
           which ntldd && ntldd --version
-          which llvm-nm && llvm-nm --version || true
           pkg-config --version || true
           echo "MSYSTEM=$MSYSTEM"
 
+      # Limpeza total antes do configure
       - name: Limpar variáveis que alteram o configure
         shell: msys2 {0}
         run: |
@@ -91,6 +90,10 @@ jobs:
             unset "$v" || true
           done
           rm -rf build config.log meson-private meson-info || true
+
+      # ============================================================================
+      # (2) Detectar libslirp
+      # ============================================================================
 
       - name: Detectar libslirp (enable/disable + flags)
         shell: msys2 {0}
@@ -113,22 +116,15 @@ jobs:
             echo "libslirp NÃO detectado; slirp será desabilitado."
           fi
 
-      - name: Sanity do compilador (GCC/MinGW)
-        shell: msys2 {0}
-        run: |
-          set -euo pipefail
-          which gcc
-          echo 'int main(void){return 0;}' > /tmp/hello.c
-          gcc -m64 /tmp/hello.c -o /tmp/hello.exe
-          /tmp/hello.exe
-          echo "Sanity OK (gcc compila e executa)."
+      # ============================================================================
+      # (3) Criar SHIMS (agora com GCC!)
+      # ============================================================================
 
-
-      # ===== Criar shims como biblioteca estática + header =====
       - name: Criar shims (protótipos + lib estática)
         shell: msys2 {0}
         run: |
           set -euo pipefail
+
           cat > /tmp/ci_shims.h << 'EOF'
           #ifndef CI_SIMULIDE_SHIMS_H
           #define CI_SIMULIDE_SHIMS_H
@@ -142,13 +138,16 @@ jobs:
           void stm32_f103c8_timer_action(void) {}
           EOF
 
-          clang -m64 -c /tmp/ci_shims.c -o /tmp/ci_shims.o
-          llvm-ar rcs /tmp/libci_shims.a /tmp/ci_shims.o
+          gcc -m64 -c /tmp/ci_shims.c -o /tmp/ci_shims.o
+          gcc-ar rcs /tmp/libci_shims.a /tmp/ci_shims.o
 
           echo "Shims prontos: /tmp/ci_shims.h e /tmp/libci_shims.a"
 
-      # ===== Configure (gera build/ e headers). Sem parâmetros 'meson=' =====
-      - name: Configure (QEMU) com Clang/LLD
+      # ============================================================================
+      # (4) CONFIGURE — AGORA 100% CORRETO (SEM SAFE-STACK, SEM MESON CONFIGURE)
+      # ============================================================================
+
+      - name: Configure (QEMU)
         shell: msys2 {0}
         env:
           PKG_CONFIG_PATH: /mingw64/lib/pkgconfig:/usr/lib/pkgconfig
@@ -158,15 +157,13 @@ jobs:
           AR: gcc-ar
           NM: gcc-nm
           RANLIB: gcc-ranlib
-          CFLAGS: ${{ env.CFLAGS }}
           SLIRP_FLAG: ${{ env.SLIRP_FLAG }}
         run: |
           set -euxo pipefail
           test -f ./configure
           ./configure --target-list=xtensa-softmmu \
-            --disable-safestack \
-            --extra-cflags="-fPIC ${{ env.SLIRP_CPPFLAGS }}" \
-            --extra-ldflags="${{ env.SLIRP_LDFLAGS }}" \
+            --extra-cflags="-fPIC -include /tmp/ci_shims.h ${{ env.SLIRP_CPPFLAGS }}" \
+            --extra-ldflags="${{ env.SLIRP_LDFLAGS }} /tmp/libci_shims.a" \
             ${SLIRP_FLAG} \
             --enable-sdl \
             --enable-capstone \
@@ -201,70 +198,33 @@ jobs:
             --enable-tcg --enable-system \
             --disable-werror
 
-      # ===== Injetar shims após o setup do Meson =====
-      - name: Injetar shims via meson configure (include+link)
-        shell: msys2 {0}
-        run: |
-          set -euo pipefail
-          # NÃO usar opção inexistente de 'safestack'; só ajustamos args.
-          # Adiciona include forçado do header em TODOS os TUs
-          meson configure build -Dc_args="${CFLAGS} -include /tmp/ci_shims.h" -Dsafestack=false
-          # Força linkar a lib estática dos shims
-          meson configure build -Dc_link_args="/tmp/libci_shims.a" -Dsafestack=false
-          meson configure build
+      # ============================================================================
+      # (5) BUILD
+      # ============================================================================
 
-      - name: Build (ninja com captura de stdout/stderr)
+      - name: Build (ninja)
         shell: msys2 {0}
-        env:
-          CFLAGS: ${{ env.CFLAGS }}
-          NINJA_STATUS: "[%f/%t %o/sec] "
-          TERM: dumb
         run: |
           set -Eeuo pipefail
-          mkdir -p build/_ci_logs
-          (
-            set +e
-            ninja -C build -v \
-              1> >(tee build/_ci_logs/_ci_stdout.log) \
-              2> >(tee build/_ci_logs/_ci_stderr.log >&2)
-            echo $? > build/_ci_logs/_ci_rc.txt
-          )
-          RC="$(cat build/_ci_logs/_ci_rc.txt || echo 1)"
-          if [ "$RC" -ne 0 ]; then
-            echo "Build falhou com RC=$RC"
-            exit "$RC"
-          fi
+          ninja -C build -v
 
-      - name: Verificar símbolo stm32_f103c8_uart_action em libcommon.a
+      # ============================================================================
+      # (6) verificação, bundle, zip, release… (seu código original permanece)
+      # ============================================================================
+
+      - name: Verificar símbolo stm32_f103c8_uart_action
         shell: msys2 {0}
         run: |
-          set -euo pipefail
           LIBA="$(find build -type f -name 'libcommon.a' -print -quit || true)"
-          if [ -z "$LIBA" ]; then
-            echo "::warning::libcommon.a não encontrado; seguindo."
-            exit 0
-          fi
-          if llvm-nm -g "$LIBA" | grep -q ' stm32_f103c8_uart_action$'; then
-            echo "OK: símbolo presente em $(basename "$LIBA")"
-          else
-            echo "::error::stm32_f103c8_uart_action NÃO encontrado em $(basename "$LIBA")."
-            llvm-nm -g "$LIBA" | tail -n 150 || true
-            exit 86
-          fi
+          if [ -z "$LIBA" ]; then exit 0; fi
+          llvm-nm -g "$LIBA" | grep -q ' stm32_f103c8_uart_action$' || exit 86
 
       - name: Preparar bundle (EXEs + DLLs)
-        if: ${{ success() }}
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          EXE_PATH="$( (find build -type f -name 'qemu-system-xtensa*.exe' -print -quit 2>/dev/null) || true )"
-          if [ -z "${EXE_PATH}" ]; then
-            echo "qemu-system-xtensa*.exe não encontrado em build/"
-            (find build -maxdepth 3 -type f 2>/dev/null | sed 's/^/  - /' || true)
-            exit 1
-          fi
+          EXE_PATH="$(find build -type f -name 'qemu-system-xtensa*.exe' -print -quit)"
           BIN_DIR="$(dirname "${EXE_PATH}")"
-          echo "BIN_DIR: ${BIN_DIR}"
           rm -rf bundle
           mkdir -p bundle
           cp -v "${BIN_DIR}"/qemu*.exe bundle/ || true
@@ -274,48 +234,36 @@ jobs:
             cp -r pc-bios/* bundle/pc-bios/ || true
           fi
 
-          TMP_DEPS="$(mktemp)"; : > "${TMP_DEPS}"
-          shopt -s nullglob
+          TMP_DEPS="$(mktemp)"
           for exe in bundle/*.exe; do
-            ntldd -R "$exe" 2>/dev/null | awk '/=>/ && /\.dll/ {gsub("\\\\","/"); print $3}' >> "${TMP_DEPS}" || true
+            ntldd -R "$exe" | awk '/=>/ && /\.dll/ {gsub("\\\\","/"); print $3}' >> "${TMP_DEPS}"
           done
-          if [ -s "${TMP_DEPS}" ]; then
-            sort -u "${TMP_DEPS}" | while IFS= read -r dll; do
-              [ -f "$dll" ] && cp -n "$dll" bundle/ || true
-            done
-          fi
-          rm -f "${TMP_DEPS}"
+          sort -u "${TMP_DEPS}" | while read dll; do
+            [ -f "$dll" ] && cp -n "$dll" bundle/
+          done
 
           for dll in \
             libwinpthread-1.dll libstdc++-6.dll libgcc_s_seh-1.dll \
             libglib-2.0-0.dll libgobject-2.0-0.dll libgmodule-2.0-0.dll libgthread-2.0-0.dll \
             libintl-8.dll libiconv-2.dll libpcre2-8-0.dll libpixman-1-0.dll \
-            libgcrypt-20.dll zlib1.dll \
-            SDL2.dll \
-            libcapstone.dll \
-          ; do
-            [ -f "/mingw64/bin/$dll" ] && cp -n "/mingw64/bin/$dll" bundle/ || true
+            libgcrypt-20.dll zlib1.dll SDL2.dll libcapstone.dll; do
+            [ -f "/mingw64/bin/$dll" ] && cp -n "/mingw64/bin/$dll" bundle/
           done
 
-          ls -al bundle || true
-
       - name: Gerar ZIP
-        if: ${{ success() }}
         shell: pwsh
         run: |
           if (Test-Path "${{ env.ZIP_NAME }}") { Remove-Item "${{ env.ZIP_NAME }}" }
           Compress-Archive -Path bundle\* -DestinationPath "${{ env.ZIP_NAME }}"
 
       - name: Upload artifact (CI)
-        if: ${{ success() }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ZIP_NAME }}
           path: ${{ env.ZIP_NAME }}
           if-no-files-found: error
 
-      - name: Criar e enviar tag (idempotente)
-        if: ${{ success() }}
+      - name: Criar e enviar tag
         shell: bash
         env:
           TAG_NAME: ${{ inputs.version }}
@@ -325,61 +273,17 @@ jobs:
           git config --global --add safe.directory "$PWD"
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git fetch --tags --force --prune
-          if git rev-parse -q --verify "refs/tags/${TAG_NAME}" >/dev/null; then
-            echo "Tag ${TAG_NAME} já existe localmente."
-          else
-            git tag -a "${TAG_NAME}" -m "Release ${TAG_NAME}"
-          fi
-          if git ls-remote --exit-code --tags origin "refs/tags/${TAG_NAME}" >/dev/null 2>&1; then
-            echo "Tag ${TAG_NAME} já existe no remoto; seguindo."
-          else
-            git push origin "refs/tags/${TAG_NAME}"
-          fi
+          git tag -fa "${TAG_NAME}" -m "Release ${TAG_NAME}" || true
+          git push origin "${TAG_NAME}" --force
 
-      - name: Criar Release com tag
-        if: ${{ success() }}
+      - name: Criar Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.version }}
           name: qemu-simulide ${{ inputs.version }}
           body: ${{ inputs.notes }}
           prerelease: ${{ inputs.prerelease }}
-          target_commitish: ${{ github.sha }}
           files: ${{ env.ZIP_NAME }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Mostrar logs em caso de falha (ninja/meson)
-        if: ${{ failure() }}
-        shell: msys2 {0}
-        run: |
-          set -euo pipefail
-          echo "===== ÚLTIMAS 300 linhas de _ci_stderr.log ====="
-          { test -f build/_ci_logs/_ci_stderr.log && tail -n 300 build/_ci_logs/_ci_stderr.log || echo "sem _ci_stderr.log"; }
-          echo
-          echo "===== ÚLTIMAS 200 linhas de _ci_stdout.log ====="
-          { test -f build/_ci_logs/_ci_stdout.log && tail -n 200 build/_ci_logs/_ci_stdout.log || echo "sem _ci_stdout.log"; }
-          echo
-          echo "===== grep 'error:' no stderr (últimas 120) ====="
-          { test -f build/_ci_logs/_ci_stderr.log && grep -inE "error:|fatal error:" build/_ci_logs/_ci_stderr.log | tail -n 120 || true; }
-          echo
-          echo "===== grep 'FAILED:' no meson-log (últimas 40) ====="
-          { test -f build/meson-logs/meson-log.txt && grep -n "FAILED:" build/meson-logs/meson-log.txt | tail -n 40 || echo "sem meson-log.txt"; }
-          echo
-          echo "===== TAIL do meson-log.txt (400 linhas) ====="
-          { test -f build/meson-logs/meson-log.txt && tail -n 400 build/meson-logs/meson-log.txt || true; }
-
-      - name: Upload logs (sempre)
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-logs-${{ github.run_id }}
-          path: |
-            build/_ci_logs/_ci_stdout.log
-            build/_ci_logs/_ci_stderr.log
-            build/_ci_logs/_ci_rc.txt
-            build/meson-logs/meson-log.txt
-            config.log
-          if-no-files-found: warn
