@@ -96,7 +96,7 @@ jobs:
             Remove-Item -Recurse -Force "build"
           }
 
-            - name: Configure QEMU (FORÇANDO gcc MinGW64)
+      - name: Configure QEMU (FORÇANDO gcc MinGW64)
         shell: msys2 {0}
         run: |
           export PATH="/mingw64/bin:/usr/bin:/bin"
