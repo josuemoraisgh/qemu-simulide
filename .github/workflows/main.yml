@@ -113,15 +113,16 @@ jobs:
             echo "libslirp NÃO detectado; slirp será desabilitado."
           fi
 
-      - name: Sanity do compilador (pré-configure, Clang/LLD)
+      - name: Sanity do compilador (GCC/MinGW)
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          which clang
+          which gcc
           echo 'int main(void){return 0;}' > /tmp/hello.c
-          clang -m64 -fuse-ld=lld /tmp/hello.c -o /tmp/hello.exe
+          gcc -m64 /tmp/hello.c -o /tmp/hello.exe
           /tmp/hello.exe
-          echo "Sanity OK (clang compila e executa)."
+          echo "Sanity OK (gcc compila e executa)."
+
 
       # ===== Criar shims como biblioteca estática + header =====
       - name: Criar shims (protótipos + lib estática)
@@ -151,12 +152,12 @@ jobs:
         shell: msys2 {0}
         env:
           PKG_CONFIG_PATH: /mingw64/lib/pkgconfig:/usr/lib/pkgconfig
-          CC: clang
-          CXX: clang++
-          LD: ld.lld
-          AR: llvm-ar
-          NM: llvm-nm
-          RANLIB: llvm-ranlib
+          CC: gcc
+          CXX: g++
+          LD: ld
+          AR: gcc-ar
+          NM: gcc-nm
+          RANLIB: gcc-ranlib
           CFLAGS: ${{ env.CFLAGS }}
           SLIRP_FLAG: ${{ env.SLIRP_FLAG }}
         run: |
