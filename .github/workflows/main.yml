@@ -1,11 +1,17 @@
-name: MinGW QEMU Pure-GCC Build
+name: MinGW Build & Release (QEMU-SimulIDE GCC)
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Tag ex.: v0.1.0"
         required: true
+        type: string
+      prerelease:
+        required: false
+        default: false
+        type: boolean
+      notes:
+        required: false
         type: string
 
 permissions:
@@ -15,18 +21,21 @@ jobs:
   build:
     runs-on: windows-latest
 
+    env:
+      ZIP_NAME: qemu-simulide-windows-mingw64-${{ inputs.version }}.zip
+      CFLAGS_BASE: -Daction=simuAction -Dtime=simuTime
+
     steps:
-      # -----------------------------
+      # ---------------------------------------------------------
       # Checkout
-      # -----------------------------
+      # ---------------------------------------------------------
       - name: Checkout
         uses: actions/checkout@v4
 
-      # -----------------------------
-      # Install a CLEAN MSYS2
-      # (NO CLANG / NO LLVM / NO LLD)
-      # -----------------------------
-      - name: Setup MSYS2 Pure GCC
+      # ---------------------------------------------------------
+      # Setup MSYS2 (PURE GCC — NO CLANG)
+      # ---------------------------------------------------------
+      - name: Setup MSYS2
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -40,37 +49,70 @@ jobs:
             mingw-w64-x86_64-ninja
             mingw-w64-x86_64-pkgconf
             mingw-w64-x86_64-glib2
-            mingw-w64-x86_64-pixman
             mingw-w64-x86_64-libslirp
             mingw-w64-x86_64-libgcrypt
+            mingw-w64-x86_64-pixman
             mingw-w64-x86_64-zlib
-            mingw-w64-x86_64-SDL2
             mingw-w64-x86_64-capstone
+            mingw-w64-x86_64-SDL2
             mingw-w64-x86_64-binutils
+            mingw-w64-x86_64-ntldd
 
-      # -----------------------------
-      # FULL PATH RESET
-      # -----------------------------
-      - name: Fix PATH (force pure MinGW64)
+      # ---------------------------------------------------------
+      # PURE GCC PATH
+      # ---------------------------------------------------------
+      - name: Fix PATH
         shell: bash
-        run: |
-          echo "PATH=/mingw64/bin:/usr/bin:/bin" >> $GITHUB_ENV
+        run: echo "PATH=/mingw64/bin:/usr/bin:/bin" >> $GITHUB_ENV
 
-      # -----------------------------
-      # Verify GCC really works
-      # -----------------------------
+      # ---------------------------------------------------------
+      # Sanity check
+      # ---------------------------------------------------------
       - name: GCC sanity test
         shell: msys2 {0}
         run: |
           echo "int main(){return 0;}" > test.c
-          gcc -v
-          gcc test.c -o test.exe
+          gcc -m64 test.c -o test.exe
           ./test.exe
           echo "GCC OK"
 
-      # -----------------------------
-      # Configure QEMU
-      # -----------------------------
+      # ---------------------------------------------------------
+      # Detect libslirp
+      # ---------------------------------------------------------
+      - name: Detect slirp
+        shell: msys2 {0}
+        run: |
+          if pkg-config --exists libslirp; then
+            echo "SLIRP_FLAG=--enable-slirp" >> $GITHUB_ENV
+            echo "SLIRP_CPPFLAGS=$(pkg-config --cflags libslirp)" >> $GITHUB_ENV
+            echo "SLIRP_LDFLAGS=$(pkg-config --libs libslirp)" >> $GITHUB_ENV
+          else
+            echo "SLIRP_FLAG=--disable-slirp" >> $GITHUB_ENV
+            echo "SLIRP_CPPFLAGS=" >> $GITHUB_ENV
+            echo "SLIRP_LDFLAGS=" >> $GITHUB_ENV
+          fi
+
+      # ---------------------------------------------------------
+      # Build SHIMS
+      # ---------------------------------------------------------
+      - name: Build shims
+        shell: msys2 {0}
+        run: |
+          echo '#ifndef CI_SIMULIDE_SHIMS_H
+          #define CI_SIMULIDE_SHIMS_H
+          void stm32_f103c8_uart_action(void);
+          void stm32_f103c8_timer_action(void);
+          #endif' > /tmp/ci_shims.h
+
+          echo 'void stm32_f103c8_uart_action(void) {}
+          void stm32_f103c8_timer_action(void) {}' > /tmp/ci_shims.c
+
+          gcc -m64 -c /tmp/ci_shims.c -o /tmp/ci_shims.o
+          gcc-ar rcs /tmp/libci_shims.a /tmp/ci_shims.o
+
+      # ---------------------------------------------------------
+      # CONFIGURE (with hw/arena include fix!)
+      # ---------------------------------------------------------
       - name: Configure QEMU
         shell: msys2 {0}
         env:
@@ -81,38 +123,57 @@ jobs:
           NM: gcc-nm
           RANLIB: gcc-ranlib
         run: |
+          ARENA="-I$(pwd)/hw/arena"
+          SHIMINC="-include /tmp/ci_shims.h"
+          EXTRA_CFLAGS="$ARENA $SHIMINC ${{ env.CFLAGS_BASE }} ${{ env.SLIRP_CPPFLAGS }}"
+          EXTRA_LDFLAGS="${{ env.SLIRP_LDFLAGS }} /tmp/libci_shims.a"
+
           ./configure \
             --target-list=xtensa-softmmu \
             --enable-system \
             --enable-tcg \
             --enable-sdl \
             --enable-capstone \
+            --extra-cflags="$EXTRA_CFLAGS" \
+            --extra-ldflags="$EXTRA_LDFLAGS" \
+            ${{ env.SLIRP_FLAG }} \
             --disable-werror
 
-      # -----------------------------
-      # Build
-      # -----------------------------
+      # ---------------------------------------------------------
+      # Build QEMU
+      # ---------------------------------------------------------
       - name: Build QEMU
         shell: msys2 {0}
-        run: |
-          ninja -C build -v
+        run: ninja -C build -v
 
-      # -----------------------------
-      # Package
-      # -----------------------------
+      # ---------------------------------------------------------
+      # Symbol check
+      # ---------------------------------------------------------
+      - name: Check shim symbols
+        shell: msys2 {0}
+        run: |
+          LIB=$(find build -name libcommon.a | head -n1)
+          nm "$LIB" | grep -q stm32_f103c8_uart_action || exit 1
+
+      # ---------------------------------------------------------
+      # Bundle & ZIP
+      # ---------------------------------------------------------
       - name: Bundle
         shell: msys2 {0}
         run: |
+          EXE=$(find build -name "qemu-system-xtensa*.exe" | head -n1)
           mkdir -p bundle
-          cp build/qemu-system-xtensa*.exe bundle/
+          cp "$EXE" bundle/
+          ntldd -R "$EXE" | awk '/=>/ {print $3}' | while read dll; do
+            [ -f "$dll" ] && cp -n "$dll" bundle/
+          done
 
-      - name: Zip
+      - name: ZIP
         shell: pwsh
-        run: |
-          Compress-Archive -Path bundle/* -DestinationPath qemu-${{ inputs.version }}.zip
+        run: Compress-Archive -Path bundle/* -DestinationPath "${{ env.ZIP_NAME }}"
 
-      - name: Upload
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: qemu-${{ inputs.version }}
-          path: qemu-${{ inputs.version }}.zip
+          name: ${{ env.ZIP_NAME }}
+          path: ${{ env.ZIP_NAME }}
