@@ -87,15 +87,6 @@ jobs:
           echo "Shims criados em:"
           ls -l build/ci_shims
 
-      
-      - name: Limpar build (PowerShell)
-        shell: pwsh
-        run: |
-          Write-Host "Limpando diretório build via PowerShell..."
-          if (Test-Path "build") {
-            Remove-Item -Recurse -Force "build"
-          }
-
       - name: Configure QEMU (FORÇANDO gcc MinGW64)
         shell: msys2 {0}
         run: |
