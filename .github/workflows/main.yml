@@ -115,19 +115,20 @@ jobs:
       # ---------------------------------------------------------
       - name: Configure QEMU
         shell: msys2 {0}
-        env:
-          CC: gcc
-          CXX: g++
-          LD: ld
-          AR: gcc-ar
-          NM: gcc-nm
-          RANLIB: gcc-ranlib
         run: |
+          export PATH="/mingw64/bin:$PATH"
+
           ARENA="-I$(pwd)/hw/arena"
           SHIMINC="-include /tmp/ci_shims.h"
           EXTRA_CFLAGS="$ARENA $SHIMINC ${{ env.CFLAGS_BASE }} ${{ env.SLIRP_CPPFLAGS }}"
           EXTRA_LDFLAGS="${{ env.SLIRP_LDFLAGS }} /tmp/libci_shims.a"
 
+          CC=x86_64-w64-mingw32-gcc \
+          CXX=x86_64-w64-mingw32-g++ \
+          AR=x86_64-w64-mingw32-gcc-ar \
+          NM=x86_64-w64-mingw32-gcc-nm \
+          RANLIB=x86_64-w64-mingw32-gcc-ranlib \
+          LD=x86_64-w64-mingw32-ld \
           ./configure \
             --target-list=xtensa-softmmu \
             --enable-system \
@@ -138,7 +139,6 @@ jobs:
             --extra-ldflags="$EXTRA_LDFLAGS" \
             ${{ env.SLIRP_FLAG }} \
             --disable-werror
-
       # ---------------------------------------------------------
       # Build QEMU
       # ---------------------------------------------------------
