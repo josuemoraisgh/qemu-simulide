@@ -198,6 +198,42 @@ jobs:
 
           print("SafeStack: convertido de error() para message() em meson.build")
           EOF
+          
+      - name: Desabilitar QGA no Meson (remover subdir('qga'))
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          FILE="meson.build"
+          if [ ! -f "$FILE" ]; then
+            echo "::error::meson.build não encontrado!"
+            exit 1
+          fi
+
+          echo ">>> Desabilitando subdir('qga') em meson.build"
+
+          python3 - << 'EOF'
+          import re
+
+          path = "meson.build"
+          with open(path, "r", encoding="utf-8") as f:
+              txt = f.read()
+
+          # Comenta qualquer linha do tipo: subdir('qga') ou subdir("qga")
+          new_txt, n = re.subn(
+              r'(^\s*subdir\([\'"]qga[\'"]\)\s*)',
+              r'# \1  # [CI] QGA desabilitado para evitar conflitos em MinGW',
+              txt,
+              flags=re.M
+          )
+
+          if n == 0:
+              print("Aviso: nenhuma linha subdir('qga') encontrada; talvez já esteja removida.")
+          else:
+              print(f"OK: {n} ocorrência(s) de subdir('qga') comentadas.")
+
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(new_txt)
+          EOF
 
       # -------------------------------------------------------------------
       # 4) Configure QEMU (usa GCC do MinGW, com rede via libslirp)
