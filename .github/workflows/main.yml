@@ -266,15 +266,17 @@ jobs:
           echo "=== GCC EM USO ==="
           which gcc
           gcc --version
-      
+          
           # Build limpo
           rm -rf build
-      
-          # Caminho absoluto da lib em formato Windows (D:/...),
-          # para o ld não se perder quando o Meson rodar via Python nativo.
+          
+          # Fix para GCC 15 (erro _LIBCPP_VERSION)
+          export CFLAGS="-D__cpp_lib_version=0"
+          export CXXFLAGS="-D__cpp_lib_version=0"
+          
           EXTRA_LDFLAGS="$(cygpath -m "$PWD/ci_shims/libci_shims.a")"
           echo "Usando EXTRA_LDFLAGS=$EXTRA_LDFLAGS"
-      
+          
           ./configure \
             --target-list=xtensa-softmmu \
             --enable-system \
