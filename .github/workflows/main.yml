@@ -1,4 +1,4 @@
-name: MinGW Build & Release (qemu-simulide - GCC/qemuArena)
+name: MinGW Build & Release (qemu-simulide - GCC)
 
 on:
   workflow_dispatch:
@@ -26,6 +26,8 @@ jobs:
 
     env:
       ZIP_NAME: qemu-simulide-windows-mingw64-${{ inputs.version }}.zip
+      # Macros que você já usava
+      CFLAGS_BASE: -Daction=simuAction -Dtime=simuTime
 
     steps:
       - name: Habilitar long paths no Git
@@ -40,7 +42,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Setup MSYS2 (MINGW64 + toolchain GCC)
+      - name: Setup MSYS2 (MINGW64 + toolchain)
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -55,7 +57,6 @@ jobs:
             mingw-w64-x86_64-pixman
             mingw-w64-x86_64-libgcrypt
             mingw-w64-x86_64-zlib
-            mingw-w64-x86_64-libslirp
             mingw-w64-x86_64-SDL2
             mingw-w64-x86_64-capstone
             mingw-w64-x86_64-ninja
@@ -64,76 +65,103 @@ jobs:
             mingw-w64-x86_64-bzip2
             mingw-w64-x86_64-binutils
 
-      - name: Versões das ferramentas (GCC)
+      - name: Versões das ferramentas
         shell: msys2 {0}
         run: |
-          set -euxo pipefail
+          set -euo pipefail
           export PATH="/mingw64/bin:/usr/bin:/bin"
           which gcc && gcc --version
           which g++ && g++ --version
           which python3 && python3 --version
           which meson && meson --version
           which ninja && ninja --version
-          which pkg-config || true
+          which ntldd && ntldd --version || true
           echo "MSYSTEM=$MSYSTEM"
 
-      - name: Limpar build anterior (build/, pyvenv, config*)
+      - name: Limpar variáveis que bagunçam o configure
         shell: msys2 {0}
         run: |
-          set -euxo pipefail
-          rm -rf build
-          rm -rf pyvenv
-          rm -f config-host.mak config-meson.cross config.status
-          rm -rf meson-logs
+          set -euo pipefail
+          export PATH="/mingw64/bin:/usr/bin:/bin"
+          for v in QEMU_CONFIGURE_OPTS QEMU_CONFIGURE_FLAGS CONFIGURE_OPTS CONFIGURE_FLAGS CPPFLAGS LDFLAGS; do
+            unset "$v" || true
+          done
+          rm -rf build config.log meson-private meson-info || true
 
-      - name: Patch qemuArena_t para adicionar campo action
+      # === PATCH: adicionar campos action/time em qemuArena_t ===
+      - name: Patch qemuArena_t para ter campo action/time
         shell: msys2 {0}
         run: |
-          set -euxo pipefail
+          set -euo pipefail
           export PATH="/mingw64/bin:/usr/bin:/bin"
 
-          # localizar a definição do qemuArena_t
-          ARENA_HDR="$(grep -RIl 'typedef volatile struct qemuArena' hw include || true)"
+          echo ">>> Localizando header que declara qemuArena_t..."
+          ARENA_HDR="$(grep -RIl 'qemuArena_t;' hw include || true)"
 
           if [ -z "$ARENA_HDR" ]; then
-            echo "::error::Não encontrei definição de 'qemuArena_t' (struct qemuArena) em hw/ nem include/."
+            echo "::error::Não encontrei 'qemuArena_t;' em hw/ nem include/. Verifique a estrutura do repositório."
             exit 1
           fi
 
-          echo "Arquivo de arena encontrado em: $ARENA_HDR"
+          echo "Header detectado: $ARENA_HDR"
 
-          # se já tiver 'action' no header, não faz nada (idempotente)
-          if grep -q 'action' "$ARENA_HDR"; then
-            echo "Campo 'action' já existe em $ARENA_HDR, não será modificado."
-            exit 0
-          fi
+          python3 - << 'EOF'
+import os, sys
 
-          cp "$ARENA_HDR" "${ARENA_HDR}.ci.bak"
+hdr = os.environ.get("ARENA_HDR")
+if not hdr:
+    print("::error::ARENA_HDR não definido no ambiente.")
+    sys.exit(1)
 
-          # injeta o campo 'int action;' dentro do struct qemuArena
-          awk '
-            /typedef[[:space:]]+volatile[[:space:]]+struct[[:space:]]+qemuArena/ { in_struct=1 }
-            in_struct && /\};/ {
-              print "    int action; /* CI: campo extra para GPIO (qemu-simulide) */"
-              in_struct=0
-            }
-            { print }
-          ' "${ARENA_HDR}.ci.bak" > "$ARENA_HDR"
+print(f"Patchando struct em {hdr!r}...")
 
-          echo "Campo 'action' injetado em $ARENA_HDR"
+with open(hdr, "r", encoding="utf-8") as f:
+    txt = f.read()
 
-      - name: Configure (QEMU / MinGW64 com GCC e arena)
+# Se já tiver 'action;' (rodou patch em outro job), não faz nada
+if "action;" in txt:
+    print("Campo 'action' já existe em qemuArena_t; não há nada a fazer.")
+    sys.exit(0)
+
+# Localiza a assinatura do typedef
+idx = txt.find("qemuArena_t;")
+if idx == -1:
+    print("::error::Assinatura 'qemuArena_t;' não encontrada dentro do arquivo, apesar do grep.")
+    sys.exit(1)
+
+# Acha a chave '}' da struct ANTES desse typedef
+brace = txt.rfind("}", 0, idx)
+if brace == -1:
+    print("::error::Não encontrei '}' da struct qemuArena antes de 'qemuArena_t;'.")
+    sys.exit(1)
+
+insert = """
+    unsigned int action;
+    unsigned int time;
+"""
+
+txt = txt[:brace] + insert + txt[brace:]
+
+with open(hdr, "w", encoding="utf-8") as f:
+    f.write(txt)
+
+print("Patch aplicado em", hdr)
+EOF
+
+      # === Configure QEMU normalmente (sem gambiarra de ci_shims) ===
+      - name: Configure (QEMU, host=MinGW64)
         shell: msys2 {0}
+        env:
+          CFLAGS_BASE: ${{ env.CFLAGS_BASE }}
         run: |
           set -euxo pipefail
           export PATH="/mingw64/bin:/usr/bin:/bin"
 
-          # força GCC como compilador "cc"
-          export CC=gcc
-          export CXX=g++
+          echo "=== GCC EM USO ==="
+          which gcc
+          gcc --version
 
-          # caminho de pkg-config para libs MinGW
-          export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:/usr/lib/pkgconfig"
+          EXTRA_CFLAGS="-I$(pwd)/hw/arena ${CFLAGS_BASE}"
 
           ./configure \
             --target-list=xtensa-softmmu \
@@ -141,10 +169,39 @@ jobs:
             --enable-tcg \
             --enable-sdl \
             --enable-capstone \
-            --enable-slirp \
-            --disable-werror
+            --disable-attr --disable-auth-pam --disable-avx2 --disable-avx512bw \
+            --disable-blkio --disable-bochs --disable-bpf --disable-brlapi \
+            --disable-bzip2 --disable-canokey --disable-cap-ng \
+            --disable-cloop --disable-cocoa --disable-colo-proxy --disable-coreaudio \
+            --disable-crypto-afalg --disable-curl --disable-curses --disable-dbus-display \
+            --disable-dmg --disable-docs --disable-dsound --disable-fuse --disable-fuse-lseek \
+            --disable-gettext --disable-gio --disable-glusterfs \
+            --disable-gnutls --disable-gtk --disable-gtk-clipboard --disable-guest-agent \
+            --disable-guest-agent-msi --disable-hvf --disable-iconv --disable-jack \
+            --disable-keyring --disable-kvm --disable-l2tpv3 --disable-libdaxctl \
+            --disable-libdw --disable-libiscsi --disable-libkeyutils --disable-libnfs \
+            --disable-libpmem --disable-libssh --disable-libudev --disable-libusb \
+            --disable-libvduse --disable-linux-aio --disable-linux-io-uring --disable-lzfse \
+            --disable-lzo --disable-malloc-trim --disable-membarrier --disable-modules \
+            --disable-mpath --disable-multiprocess --disable-netmap --disable-nettle \
+            --disable-numa --disable-nvmm --disable-opengl --disable-oss --disable-pa \
+            --disable-parallels --disable-pipewire --disable-png --disable-qcow1 \
+            --disable-qed --disable-qga-vss --disable-rbd --disable-rdma --disable-replication \
+            --disable-sdl-image --disable-seccomp --disable-selinux \
+            --disable-smartcard --disable-snappy --disable-sndio --disable-sparse \
+            --disable-spice --disable-spice-protocol --disable-stack-protector \
+            --disable-tools --disable-tpm --disable-u2f --disable-usb-redir \
+            --disable-vde --disable-vdi --disable-vhdx --disable-vhost-crypto \
+            --disable-vhost-kernel --disable-vhost-net --disable-vhost-user --disable-vhost-vdpa \
+            --disable-virglrenderer --disable-virtfs --disable-vmdk --disable-vmnet \
+            --disable-vnc --disable-vnc-jpeg --disable-vnc-sasl --disable-vpc \
+            --disable-vte --disable-vvfat --disable-whpx --disable-xen --disable-xkbcommon \
+            --disable-zstd \
+            --disable-werror \
+            --disable-slirp \
+            --extra-cflags="${EXTRA_CFLAGS}"
 
-      - name: Build (ninja com captura de stdout/stderr)
+      - name: Build (ninja)
         shell: msys2 {0}
         env:
           NINJA_STATUS: "[%f/%t %o/sec] "
@@ -177,34 +234,26 @@ jobs:
           EXE_PATH="$( (find build -type f -name 'qemu-system-xtensa*.exe' -print -quit 2>/dev/null) || true )"
           if [ -z "${EXE_PATH}" ]; then
             echo "qemu-system-xtensa*.exe não encontrado em build/"
-            (find build -maxdepth 4 -type f 2>/dev/null | sed 's/^/  - /' || true)
+            (find build -maxdepth 3 -type f 2>/dev/null | sed 's/^/  - /' || true)
             exit 1
           fi
-
           BIN_DIR="$(dirname "${EXE_PATH}")"
           echo "BIN_DIR: ${BIN_DIR}"
 
           rm -rf bundle
           mkdir -p bundle
-
-          # copia todos os qemu*.exe produzidos
           cp -v "${BIN_DIR}"/qemu*.exe bundle/ || true
 
-          # pc-bios (se existir)
           if [ -d "pc-bios" ]; then
             mkdir -p bundle/pc-bios
             cp -r pc-bios/* bundle/pc-bios/ || true
           fi
 
-          # resolver dependências de DLL via ntldd
-          TMP_DEPS="$(mktemp)"
-          : > "${TMP_DEPS}"
-
+          TMP_DEPS="$(mktemp)"; : > "${TMP_DEPS}"
           shopt -s nullglob
           for exe in bundle/*.exe; do
             ntldd -R "$exe" 2>/dev/null | awk '/=>/ && /\.dll/ {gsub("\\\\","/"); print $3}' >> "${TMP_DEPS}" || true
           done
-
           if [ -s "${TMP_DEPS}" ]; then
             sort -u "${TMP_DEPS}" | while IFS= read -r dll; do
               [ -f "$dll" ] && cp -n "$dll" bundle/ || true
@@ -212,28 +261,24 @@ jobs:
           fi
           rm -f "${TMP_DEPS}"
 
-          # DLLs essenciais do MinGW64 que nem sempre aparecem no ntldd
           for dll in \
             libwinpthread-1.dll libstdc++-6.dll libgcc_s_seh-1.dll \
             libglib-2.0-0.dll libgobject-2.0-0.dll libgmodule-2.0-0.dll libgthread-2.0-0.dll \
             libintl-8.dll libiconv-2.dll libpcre2-8-0.dll libpixman-1-0.dll \
             libgcrypt-20.dll zlib1.dll \
             SDL2.dll \
-            libslirp-0.dll libcapstone.dll \
+            libcapstone.dll \
           ; do
             [ -f "/mingw64/bin/$dll" ] && cp -n "/mingw64/bin/$dll" bundle/ || true
           done
 
-          echo "Conteúdo final do bundle/"
           ls -al bundle || true
 
       - name: Gerar ZIP
         if: ${{ success() }}
         shell: pwsh
         run: |
-          if (Test-Path "${{ env.ZIP_NAME }}") {
-            Remove-Item "${{ env.ZIP_NAME }}"
-          }
+          if (Test-Path "${{ env.ZIP_NAME }}") { Remove-Item "${{ env.ZIP_NAME }}" }
           Compress-Archive -Path bundle\* -DestinationPath "${{ env.ZIP_NAME }}"
 
       - name: Upload artifact (CI)
@@ -256,15 +301,12 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-
           git fetch --tags --force --prune
-
           if git rev-parse -q --verify "refs/tags/${TAG_NAME}" >/dev/null; then
             echo "Tag ${TAG_NAME} já existe localmente."
           else
             git tag -a "${TAG_NAME}" -m "Release ${TAG_NAME}"
           fi
-
           if git ls-remote --exit-code --tags origin "refs/tags/${TAG_NAME}" >/dev/null 2>&1; then
             echo "Tag ${TAG_NAME} já existe no remoto; seguindo."
           else
@@ -295,11 +337,8 @@ jobs:
           echo "===== ÚLTIMAS 200 linhas de _ci_stdout.log ====="
           { test -f build/_ci_logs/_ci_stdout.log && tail -n 200 build/_ci_logs/_ci_stdout.log || echo "sem _ci_stdout.log"; }
           echo
-          echo "===== grep 'error:' no stderr (últimas 120) ====="
-          { test -f build/_ci_logs/_ci_stderr.log && grep -inE "error:|fatal error:" build/_ci_logs/_ci_stderr.log | tail -n 120 || true; }
-          echo
-          echo "===== TAIL do meson-log.txt (400 linhas) ====="
-          { test -f build/meson-logs/meson-log.txt && tail -n 400 build/meson-logs/meson-log.txt || echo "sem meson-log.txt"; }
+          echo "===== meson-log.txt (tail 200) ====="
+          { test -f build/meson-logs/meson-log.txt && tail -n 200 build/meson-logs/meson-log.txt || echo "sem meson-log.txt"; }
 
       - name: Upload logs (sempre)
         if: ${{ always() }}
