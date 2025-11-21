@@ -134,26 +134,21 @@ jobs:
           grep -n "arena action" "$FILE" || true
 
       # ==== Configure QEMU ====
-      - name: Configure (QEMU com GCC MinGW)
+      - name: Configure (QEMU com GCC MinGW, SEM extra-cflags/ldflags)
         shell: msys2 {0}
         env:
           CFLAGS_BASE: ${{ env.CFLAGS_BASE }}
         run: |
           set -euxo pipefail
-
+      
           export PATH="/mingw64/bin:/usr/bin:/bin"
           hash -r
-
+      
           echo "=== GCC EM USO ==="
           which gcc
           gcc --version
-
-          # flags extras: arena + macros + include de ci_shims
-          ARENA_INC="-I$(pwd)/hw/arena"
-          SHIM_INC="-include $(pwd)/ci_shims/ci_shims.h"
-          EXTRA_CFLAGS="${ARENA_INC} ${SHIM_INC} ${CFLAGS_BASE}"
-          EXTRA_LDFLAGS="$(pwd)/ci_shims/libci_shims.a"
-
+      
+          # NÃO PASSAR ARENA / SHIMS / MACROS AQUI
           ./configure \
             --target-list=xtensa-softmmu \
             --enable-system \
@@ -189,9 +184,7 @@ jobs:
             --disable-vte --disable-vvfat --disable-whpx --disable-xen --disable-xkbcommon \
             --disable-zstd \
             --disable-werror \
-            --disable-slirp \
-            --extra-cflags="${EXTRA_CFLAGS}" \
-            --extra-ldflags="${EXTRA_LDFLAGS}"
+            --disable-slirp
 
       # ==== Build com ninja (capturando logs) ====
       - name: Build (ninja com captura de stdout/stderr)
