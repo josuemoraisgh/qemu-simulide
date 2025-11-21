@@ -212,8 +212,13 @@ jobs:
           which gcc
           gcc --version
       
-          # Build limpo — apenas remover
+          # Build limpo
           rm -rf build
+      
+          # Caminho absoluto da lib em formato Windows (D:/...),
+          # para o ld não se perder quando o Meson rodar via Python nativo.
+          EXTRA_LDFLAGS="$(cygpath -m "$PWD/ci_shims/libci_shims.a")"
+          echo "Usando EXTRA_LDFLAGS=$EXTRA_LDFLAGS"
       
           ./configure \
             --target-list=xtensa-softmmu \
@@ -223,9 +228,7 @@ jobs:
             --enable-capstone \
             --disable-werror \
             --disable-slirp \
-            --extra-ldflags="$(pwd)/ci_shims/libci_shims.a"
-
-
+            --extra-ldflags="$EXTRA_LDFLAGS"
       # -------------------------------------------------------------------
       # 5) Build com ninja, guardando logs
       # -------------------------------------------------------------------
