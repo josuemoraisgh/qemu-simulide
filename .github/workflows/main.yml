@@ -26,15 +26,19 @@ jobs:
 
     env:
       ZIP_NAME: qemu-simulide-windows-mingw64-${{ inputs.version }}.zip
-      # Mantido se você quiser reaproveitar depois, mas não é mais usado diretamente:
-      CFLAGS_BASE: -Daction=simuAction -Dtime=simuTime
 
     steps:
+      # -------------------------------------------------------------------
+      # Git em Windows gosta de caminho longo: garante que não quebre.
+      # -------------------------------------------------------------------
       - name: Habilitar long paths no Git
         run: |
           git config --system core.longpaths true
           git config --global core.longpaths true
 
+      # -------------------------------------------------------------------
+      # Checkout do repositório
+      # -------------------------------------------------------------------
       - name: Checkout (sem submódulos)
         uses: actions/checkout@v4
         with:
@@ -42,6 +46,9 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
+      # -------------------------------------------------------------------
+      # MSYS2 + toolchain MinGW64
+      # -------------------------------------------------------------------
       - name: Setup MSYS2 (MINGW64 + toolchain)
         uses: msys2/setup-msys2@v2
         with:
@@ -59,13 +66,15 @@ jobs:
             mingw-w64-x86_64-zlib
             mingw-w64-x86_64-SDL2
             mingw-w64-x86_64-capstone
-            mingw-w64-x86_64-libslirp
             mingw-w64-x86_64-ninja
             mingw-w64-x86_64-meson
             mingw-w64-x86_64-ntldd
             mingw-w64-x86_64-bzip2
             mingw-w64-x86_64-binutils
 
+      # -------------------------------------------------------------------
+      # Mostrar versões das ferramentas (debug)
+      # -------------------------------------------------------------------
       - name: Versões das ferramentas
         shell: msys2 {0}
         run: |
@@ -77,11 +86,14 @@ jobs:
           which ntldd && ntldd --version || true
           echo "MSYSTEM=$MSYSTEM"
 
+      # -------------------------------------------------------------------
+      # Limpar variáveis que podem interferir no ./configure
+      # -------------------------------------------------------------------
       - name: Limpar variáveis que alteram o configure
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          for v in QEMU_CONFIGURE_OPTS QEMU_CONFIGURE_FLAGS CONFIGURE_OPTS CONFIGURE_FLAGS CPPFLAGS CFLAGS LDFLAGS; do
+          for v in QEMU_CONFIGURE_OPTS QEMU_CONFIGURE_FLAGS CONFIGURE_OPTS CONFIGURE_FLAGS CPPFLAGS CFLAGS CXXFLAGS LDFLAGS; do
             unset "$v" || true
           done
           rm -rf build config.log || true
@@ -103,9 +115,7 @@ jobs:
           echo "Stub library criada em ci_shims/libci_shims.a"
 
       # -------------------------------------------------------------------
-      # 2) Patch em system/simuliface.h:
-      #    cria macros para m_arena->action / m_arena->time
-      #    sem mexer no layout da struct qemuArena_t.
+      # 2) Patch em system/simuliface.h (macros action/time compat)
       # -------------------------------------------------------------------
       - name: Patch qemuArena_t (compat action/time)
         shell: msys2 {0}
@@ -122,13 +132,12 @@ jobs:
           echo ">>> Patchando compat de action/time em $HDR"
 
           python3 - << 'EOF'
-          import io, os
+          import os
 
           path = "system/simuliface.h"
           with open(path, "r", encoding="utf-8") as f:
               txt = f.read()
 
-          # Se já tem a marca, não faz nada
           if "ARENA_COMPAT_ACTION_FIELD" in txt:
               print("Compat de ARENA_COMPAT_ACTION_FIELD já existe; pulando patch.")
               raise SystemExit(0)
@@ -155,8 +164,6 @@ jobs:
 
           idx = txt.rfind("#endif")
           if idx == -1:
-              # Se por algum motivo não tiver #endif (header inconsistente),
-              # apenas apenda no final.
               new_txt = txt + insertion
           else:
               new_txt = txt[:idx] + insertion + txt[idx:]
@@ -187,7 +194,7 @@ jobs:
 
           old = "error('Problem encountered: Cannot disable SafeStack')"
           if old not in txt:
-              print("Linha de SafeStack não encontrada; nada a patchar (talvez QEMU já mudei).")
+              print("Linha de SafeStack não encontrada; nada a patchar (talvez QEMU já tenha mudado).")
               raise SystemExit(0)
 
           new = "message('SafeStack not supported on this toolchain; ignoring check')"
@@ -198,45 +205,71 @@ jobs:
 
           print("SafeStack: convertido de error() para message() em meson.build")
           EOF
-          
-      - name: Desabilitar QGA no Meson (remover subdir('qga'))
+
+      # -------------------------------------------------------------------
+      # 4) Patch para desabilitar build do QGA VSS (vss-win32)
+      #    Isso evita o erro de redefinition de ConvertStringToBSTR.
+      # -------------------------------------------------------------------
+      - name: Patch QGA VSS (desabilitar vss-win32)
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          FILE="meson.build"
+          FILE="qga/meson.build"
           if [ ! -f "$FILE" ]; then
-            echo "::error::meson.build não encontrado!"
-            exit 1
+            echo "qga/meson.build não encontrado; talvez QGA nem exista neste branch."
+            exit 0
           fi
 
-          echo ">>> Desabilitando subdir('qga') em meson.build"
+          echo ">>> Desabilitando subdir('vss-win32') em qga/meson.build"
 
           python3 - << 'EOF'
-          import re
-
-          path = "meson.build"
+          path = "qga/meson.build"
           with open(path, "r", encoding="utf-8") as f:
               txt = f.read()
 
-          # Comenta qualquer linha do tipo: subdir('qga') ou subdir("qga")
-          new_txt, n = re.subn(
-              r'(^\s*subdir\([\'"]qga[\'"]\)\s*)',
-              r'# \1  # [CI] QGA desabilitado para evitar conflitos em MinGW',
-              txt,
-              flags=re.M
-          )
+          marker = "subdir('vss-win32')"
+          if marker not in txt:
+              print("subdir('vss-win32') não encontrado; nada a fazer.")
+              raise SystemExit(0)
 
-          if n == 0:
-              print("Aviso: nenhuma linha subdir('qga') encontrada; talvez já esteja removida.")
-          else:
-              print(f"OK: {n} ocorrência(s) de subdir('qga') comentadas.")
+          replacement = "message('Skipping qga/vss-win32 on MinGW CI (ConvertStringToBSTR conflict)')\n# " + marker
+          txt = txt.replace(marker, replacement, 1)
 
           with open(path, "w", encoding="utf-8") as f:
-              f.write(new_txt)
+              f.write(txt)
+
+          print("OK: vss-win32 desabilitado em qga/meson.build")
           EOF
 
       # -------------------------------------------------------------------
-      # 4) Configure QEMU (usa GCC do MinGW, com rede via libslirp)
+      # 5) Build e instalação de libslirp (rede do QEMU)
+      # -------------------------------------------------------------------
+      - name: Build libslirp (required for QEMU networking)
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          pacman -S --noconfirm --needed \
+            mingw-w64-x86_64-meson \
+            mingw-w64-x86_64-ninja \
+            mingw-w64-x86_64-glib2 \
+            mingw-w64-x86_64-openssl \
+            mingw-w64-x86_64-python
+
+          if [ ! -d slirp_src ]; then
+            git clone https://gitlab.freedesktop.org/slirp/libslirp.git slirp_src
+          fi
+          cd slirp_src
+
+          meson setup builddir --prefix=/mingw64 || meson setup builddir --prefix=/mingw64 --reconfigure
+          ninja -C builddir
+          ninja -C builddir install
+
+          echo "libslirp instalada em /mingw64:"
+          ls -R /mingw64/include/slirp || true
+          ls -R /mingw64/lib | grep -i slirp || true
+
+      # -------------------------------------------------------------------
+      # 6) Configure QEMU (usa GCC do MinGW, com stub libci_shims)
       # -------------------------------------------------------------------
       - name: Configure (QEMU) - xtensa-softmmu
         shell: msys2 {0}
@@ -244,36 +277,33 @@ jobs:
           set -euo pipefail
           export PATH="/mingw64/bin:/usr/bin:/bin"
           hash -r
-      
+
           echo "=== GCC EM USO ==="
           which gcc
           gcc --version
-          
+
           # Build limpo
           rm -rf build
-          
-          # Fix para GCC 15 (_LIBCPP_VERSION em testes de C++)
+
+          # Fix para GCC 15 (sanidade de _LIBCPP_VERSION no Meson)
           export CFLAGS="-D_LIBCPP_VERSION=0"
           export CXXFLAGS="-D_LIBCPP_VERSION=0"
-          
-          # Caminho absoluto da stub lib em formato Windows (D:/...),
-          # para o ld não se perder quando o Meson rodar via Python nativo.
+
+          # Caminho absoluto para a stub lib (formato Windows)
           EXTRA_LDFLAGS="$(cygpath -m "$PWD/ci_shims/libci_shims.a")"
           echo "Usando EXTRA_LDFLAGS=$EXTRA_LDFLAGS"
-          
+
           ./configure \
             --target-list=xtensa-softmmu \
             --enable-system \
             --enable-tcg \
             --enable-sdl \
             --enable-capstone \
-            --enable-slirp \
             --disable-werror \
-            --disable-tools \
             --extra-ldflags="$EXTRA_LDFLAGS"
 
       # -------------------------------------------------------------------
-      # 5) Build com ninja, guardando logs
+      # 7) Build com ninja, guardando logs
       # -------------------------------------------------------------------
       - name: Build (ninja)
         shell: msys2 {0}
@@ -300,7 +330,7 @@ jobs:
           fi
 
       # -------------------------------------------------------------------
-      # 6) Preparar bundle (EXEs + DLLs)
+      # 8) Preparar bundle (EXEs + DLLs necessários)
       # -------------------------------------------------------------------
       - name: Preparar bundle (EXEs + DLLs)
         if: ${{ success() }}
@@ -312,7 +342,7 @@ jobs:
           EXE_PATH="$( (find build -type f -name 'qemu-system-xtensa*.exe' -print -quit 2>/dev/null) || true )"
           if [ -z "${EXE_PATH}" ]; then
             echo "qemu-system-xtensa*.exe não encontrado em build/"
-            (find build -maxdepth 3 -type f 2>/dev/null | sed 's/^/  - /' || true)
+            (find build -maxdepth 4 -type f 2>/dev/null | sed 's/^/  - /' || true)
             exit 1
           fi
 
@@ -321,13 +351,16 @@ jobs:
           rm -rf bundle
           mkdir -p bundle
 
+          # Copia todos os qemu*.exe (system, img, nbd, etc)
           cp -v "${BIN_DIR}"/qemu*.exe bundle/ || true
 
+          # BIOS/firmwares
           if [ -d "pc-bios" ]; then
             mkdir -p bundle/pc-bios
             cp -r pc-bios/* bundle/pc-bios/ || true
           fi
 
+          # Descobrir DLLs usadas e copiá-las
           TMP_DEPS="$(mktemp)"; : > "${TMP_DEPS}"
           shopt -s nullglob
           for exe in bundle/*.exe; do
@@ -340,7 +373,7 @@ jobs:
           fi
           rm -f "${TMP_DEPS}"
 
-          # DLLs importantes extras
+          # DLLs extras importantes
           for dll in \
             libwinpthread-1.dll libstdc++-6.dll libgcc_s_seh-1.dll \
             libglib-2.0-0.dll libgobject-2.0-0.dll libgmodule-2.0-0.dll libgthread-2.0-0.dll \
@@ -348,13 +381,19 @@ jobs:
             libgcrypt-20.dll zlib1.dll \
             SDL2.dll \
             libcapstone.dll \
-            libslirp-0.dll \
+            libslirp-0.dll libssl-*.dll libcrypto-*.dll \
           ; do
-            [ -f "/mingw64/bin/$dll" ] && cp -n "/mingw64/bin/$dll" bundle/ || true
+            for cand in /mingw64/bin/$dll ; do
+              [ -f "$cand" ] && cp -n "$cand" bundle/ || true
+            done
           done
 
+          echo "Conteúdo final do bundle/"
           ls -al bundle || true
 
+      # -------------------------------------------------------------------
+      # 9) Gerar ZIP
+      # -------------------------------------------------------------------
       - name: Gerar ZIP
         if: ${{ success() }}
         shell: pwsh
@@ -362,6 +401,9 @@ jobs:
           if (Test-Path "${{ env.ZIP_NAME }}") { Remove-Item "${{ env.ZIP_NAME }}" }
           Compress-Archive -Path bundle\* -DestinationPath "${{ env.ZIP_NAME }}"
 
+      # -------------------------------------------------------------------
+      # 10) Upload de artifact (CI)
+      # -------------------------------------------------------------------
       - name: Upload artifact (CI)
         if: ${{ success() }}
         uses: actions/upload-artifact@v4
@@ -370,6 +412,9 @@ jobs:
           path: ${{ env.ZIP_NAME }}
           if-no-files-found: error
 
+      # -------------------------------------------------------------------
+      # 11) Criar / enviar tag
+      # -------------------------------------------------------------------
       - name: Criar e enviar tag (idempotente)
         if: ${{ success() }}
         shell: bash
@@ -394,6 +439,9 @@ jobs:
             git push origin "refs/tags/${TAG_NAME}"
           fi
 
+      # -------------------------------------------------------------------
+      # 12) Criar Release no GitHub
+      # -------------------------------------------------------------------
       - name: Criar Release com tag
         if: ${{ success() }}
         uses: softprops/action-gh-release@v2
@@ -407,7 +455,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Logs em caso de falha de build
+      # -------------------------------------------------------------------
+      # 13) Mostrar logs detalhados se der falha
+      # -------------------------------------------------------------------
       - name: Mostrar logs em caso de falha (ninja/meson)
         if: ${{ failure() }}
         shell: msys2 {0}
@@ -417,7 +467,7 @@ jobs:
           { test -f build/_ci_logs/_ci_stderr.log && tail -n 300 build/_ci_logs/_ci_stderr.log || echo "sem _ci_stderr.log"; }
           echo
           echo "===== ÚLTIMAS 200 linhas de _ci_stdout.log ====="
-          { test -f build/_ci_logs/_ci_stdout.log && tail -n 200 build/_ci_stdout.log || echo "sem _ci_stdout.log"; }
+          { test -f build/_ci_logs/_ci_stdout.log && tail -n 200 build/_ci_logs/_ci_stdout.log || echo "sem _ci_stdout.log"; }
           echo
           echo "===== grep 'error:' no stderr (últimas 120) ====="
           { test -f build/_ci_logs/_ci_stderr.log && grep -inE "error:|fatal error:" build/_ci_logs/_ci_stderr.log | tail -n 120 || true; }
@@ -425,6 +475,9 @@ jobs:
           echo "===== TAIL do meson-log.txt (400 linhas) ====="
           { test -f build/meson-logs/meson-log.txt && tail -n 400 build/meson-logs/meson-log.txt || echo "sem meson-log.txt"; }
 
+      # -------------------------------------------------------------------
+      # 14) Upload dos logs sempre (para depuração posterior)
+      # -------------------------------------------------------------------
       - name: Upload logs (sempre)
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
