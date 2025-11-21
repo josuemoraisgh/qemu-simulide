@@ -230,6 +230,28 @@ jobs:
           
           print("OK: teste removido.")
           EOF
+          
+      - name: Build libslirp (required for QEMU networking)
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          pacman -S --noconfirm --needed \
+            mingw-w64-x86_64-meson \
+            mingw-w64-x86_64-ninja \
+            mingw-w64-x86_64-glib2 \
+            mingw-w64-x86_64-openssl \
+            mingw-w64-x86_64-python
+      
+          git clone https://gitlab.freedesktop.org/slirp/libslirp.git slirp_src
+          cd slirp_src
+      
+          meson setup builddir --prefix=/mingw64
+          ninja -C builddir
+          ninja -C builddir install
+      
+          echo "libslirp installed under /mingw64:"
+          ls -R /mingw64/include/slirp || true
+          ls -R /mingw64/lib | grep slirp || true
 
       # -------------------------------------------------------------------
       # 4) Configure QEMU (usa GCC do MinGW, sem truques de -include)
