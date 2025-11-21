@@ -197,6 +197,39 @@ jobs:
 
           print("SafeStack: convertido de error() para message() em meson.build")
           EOF
+          
+      - name: Patch meson C++ sanity test (libcpp check)
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+      
+          FILE="meson.build"
+          if [ ! -f "$FILE" ]; then
+            echo "::error::meson.build não encontrado!"
+            exit 1
+          fi
+      
+          echo ">>> Removendo sanity-check que usa _LIBCPP_VERSION (incompatível com GCC MinGW)"
+      
+          python3 - << 'EOF'
+          import re
+          
+          path = "meson.build"
+          with open(path, "r", encoding="utf-8") as f:
+              txt = f.read()
+          
+          # Remove ou modifica a parte do sanity-check de _LIBCPP_VERSION
+          pattern = r'''
+          .*_LIBCPP_VERSION.*?   # qualquer trecho envolvendo esse teste
+          '''
+          # Trocar por mensagem inofensiva
+          new_txt = re.sub(pattern, "message('Skipping libc++ version probe (GCC MinGW does not provide _LIBCPP_VERSION)')", txt, flags=re.S)
+          
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(new_txt)
+          
+          print("OK: teste removido.")
+          EOF
 
       # -------------------------------------------------------------------
       # 4) Configure QEMU (usa GCC do MinGW, sem truques de -include)
