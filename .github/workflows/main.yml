@@ -207,15 +207,14 @@ jobs:
           set -euo pipefail
           export PATH="/mingw64/bin:/usr/bin:/bin"
           hash -r
-
+      
           echo "=== GCC EM USO ==="
           which gcc
           gcc --version
-
-          # Build limpo
+      
+          # Build limpo — apenas remover
           rm -rf build
-          mkdir -p build
-
+      
           ./configure \
             --target-list=xtensa-softmmu \
             --enable-system \
@@ -225,6 +224,7 @@ jobs:
             --disable-werror \
             --disable-slirp \
             --extra-ldflags="$(pwd)/ci_shims/libci_shims.a"
+
 
       # -------------------------------------------------------------------
       # 5) Build com ninja, guardando logs
