@@ -133,25 +133,24 @@ jobs:
               raise SystemExit(0)
 
           insertion = r"""
-/* ---------------------------------------------------------------------
- * CI compatibility layer:
- * Permite que código legado use m_arena->action / m_arena->time
- * mapeando para os campos atuais da struct qemuArena_t.
- * Ajuste qemuAction/qemuTime se quiser outro mapeamento.
- * ------------------------------------------------------------------- */
-#ifndef ARENA_COMPAT_ACTION_FIELD
-#define ARENA_COMPAT_ACTION_FIELD qemuAction
-#endif
-#ifndef ARENA_COMPAT_TIME_FIELD
-#define ARENA_COMPAT_TIME_FIELD   qemuTime
-#endif
-
-/* Atenção: macros globais; usadas principalmente em m_arena->action/time */
-#define action ARENA_COMPAT_ACTION_FIELD
-#define time   ARENA_COMPAT_TIME_FIELD
-/* ------------------------------------------------------------------- */
-
-"""
+          /* ---------------------------------------------------------------------
+           * CI compatibility layer:
+           * Permite que código legado use m_arena->action / m_arena->time
+           * mapeando para os campos atuais da struct qemuArena_t.
+           * Ajuste qemuAction/qemuTime se quiser outro mapeamento.
+           * ------------------------------------------------------------------- */
+          #ifndef ARENA_COMPAT_ACTION_FIELD
+          #define ARENA_COMPAT_ACTION_FIELD qemuAction
+          #endif
+          #ifndef ARENA_COMPAT_TIME_FIELD
+          #define ARENA_COMPAT_TIME_FIELD   qemuTime
+          #endif
+          
+          /* Atenção: macros globais; usadas principalmente em m_arena->action/time */
+          #define action ARENA_COMPAT_ACTION_FIELD
+          #define time   ARENA_COMPAT_TIME_FIELD
+          /* ------------------------------------------------------------------- */
+          """
 
           idx = txt.rfind("#endif")
           if idx == -1:
