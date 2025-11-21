@@ -106,47 +106,47 @@ jobs:
           echo "Header detectado: $ARENA_HDR"
 
           python3 - << 'EOF'
-import os, sys
-
-hdr = os.environ.get("ARENA_HDR")
-if not hdr:
-    print("::error::ARENA_HDR não definido no ambiente.")
-    sys.exit(1)
-
-print(f"Patchando struct em {hdr!r}...")
-
-with open(hdr, "r", encoding="utf-8") as f:
-    txt = f.read()
-
-# Se já tiver 'action;' (rodou patch em outro job), não faz nada
-if "action;" in txt:
-    print("Campo 'action' já existe em qemuArena_t; não há nada a fazer.")
-    sys.exit(0)
-
-# Localiza a assinatura do typedef
-idx = txt.find("qemuArena_t;")
-if idx == -1:
-    print("::error::Assinatura 'qemuArena_t;' não encontrada dentro do arquivo, apesar do grep.")
-    sys.exit(1)
-
-# Acha a chave '}' da struct ANTES desse typedef
-brace = txt.rfind("}", 0, idx)
-if brace == -1:
-    print("::error::Não encontrei '}' da struct qemuArena antes de 'qemuArena_t;'.")
-    sys.exit(1)
-
-insert = """
-    unsigned int action;
-    unsigned int time;
-"""
-
-txt = txt[:brace] + insert + txt[brace:]
-
-with open(hdr, "w", encoding="utf-8") as f:
-    f.write(txt)
-
-print("Patch aplicado em", hdr)
-EOF
+          import os, sys
+          
+          hdr = os.environ.get("ARENA_HDR")
+          if not hdr:
+              print("::error::ARENA_HDR não definido no ambiente.")
+              sys.exit(1)
+          
+          print(f"Patchando struct em {hdr!r}...")
+          
+          with open(hdr, "r", encoding="utf-8") as f:
+              txt = f.read()
+          
+          # Se já tiver 'action;' (rodou patch em outro job), não faz nada
+          if "action;" in txt:
+              print("Campo 'action' já existe em qemuArena_t; não há nada a fazer.")
+              sys.exit(0)
+          
+          # Localiza a assinatura do typedef
+          idx = txt.find("qemuArena_t;")
+          if idx == -1:
+              print("::error::Assinatura 'qemuArena_t;' não encontrada dentro do arquivo, apesar do grep.")
+              sys.exit(1)
+          
+          # Acha a chave '}' da struct ANTES desse typedef
+          brace = txt.rfind("}", 0, idx)
+          if brace == -1:
+              print("::error::Não encontrei '}' da struct qemuArena antes de 'qemuArena_t;'.")
+              sys.exit(1)
+          
+          insert = """
+              unsigned int action;
+              unsigned int time;
+          """
+          
+          txt = txt[:brace] + insert + txt[brace:]
+          
+          with open(hdr, "w", encoding="utf-8") as f:
+              f.write(txt)
+          
+          print("Patch aplicado em", hdr)
+          EOF
 
       # === Configure QEMU normalmente (sem gambiarra de ci_shims) ===
       - name: Configure (QEMU, host=MinGW64)
