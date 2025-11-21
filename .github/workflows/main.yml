@@ -89,65 +89,55 @@ jobs:
           rm -rf build config.log meson-private meson-info || true
 
       # === PATCH: adicionar campos action/time em qemuArena_t ===
-      - name: Patch qemuArena_t para ter campo action/time
+      - name: Patch qemuArena_t em system/simuliface.h
         shell: msys2 {0}
         run: |
           set -euo pipefail
           export PATH="/mingw64/bin:/usr/bin:/bin"
 
-          echo ">>> Localizando header que declara qemuArena_t..."
-          ARENA_HDR="$(grep -RIl 'qemuArena_t;' hw include || true)"
+          HDR="system/simuliface.h"
 
-          if [ -z "$ARENA_HDR" ]; then
-            echo "::error::Não encontrei 'qemuArena_t;' em hw/ nem include/. Verifique a estrutura do repositório."
+          if [ ! -f "$HDR" ]; then
+            echo "::error::Arquivo system/simuliface.h não encontrado!"
             exit 1
           fi
 
-          echo "Header detectado: $ARENA_HDR"
+          echo ">>> Patching qemuArena_t em $HDR"
 
           python3 - << 'EOF'
-          import os, sys
+          import re, sys
           
-          hdr = os.environ.get("ARENA_HDR")
-          if not hdr:
-              print("::error::ARENA_HDR não definido no ambiente.")
-              sys.exit(1)
-          
-          print(f"Patchando struct em {hdr!r}...")
+          hdr = "system/simuliface.h"
           
           with open(hdr, "r", encoding="utf-8") as f:
               txt = f.read()
           
-          # Se já tiver 'action;' (rodou patch em outro job), não faz nada
-          if "action;" in txt:
-              print("Campo 'action' já existe em qemuArena_t; não há nada a fazer.")
+          # Já existe?
+          if "action;" in txt and "time;" in txt:
+              print("Campos 'action' e 'time' já existem — nenhum patch necessário.")
               sys.exit(0)
           
-          # Localiza a assinatura do typedef
-          idx = txt.find("qemuArena_t;")
-          if idx == -1:
-              print("::error::Assinatura 'qemuArena_t;' não encontrada dentro do arquivo, apesar do grep.")
+          # Encontrar definição da struct
+          m = re.search(r"(typedef\s+volatile\s+struct\s+qemuArena\s*\{)(.*?)(\}\s*qemuArena_t;)", txt, re.S)
+          if not m:
+              print("::error::Não encontrei typedef volatile struct qemuArena em system/simuliface.h")
               sys.exit(1)
           
-          # Acha a chave '}' da struct ANTES desse typedef
-          brace = txt.rfind("}", 0, idx)
-          if brace == -1:
-              print("::error::Não encontrei '}' da struct qemuArena antes de 'qemuArena_t;'.")
-              sys.exit(1)
+          before, body, after = m.groups()
           
-          insert = """
+          patch = """
               unsigned int action;
               unsigned int time;
           """
           
-          txt = txt[:brace] + insert + txt[brace:]
+          new_body = body + patch
+          new_txt = before + new_body + after
           
           with open(hdr, "w", encoding="utf-8") as f:
-              f.write(txt)
+              f.write(new_txt)
           
-          print("Patch aplicado em", hdr)
+          print("Patch aplicado com sucesso em system/simuliface.h")
           EOF
-
       # === Configure QEMU normalmente (sem gambiarra de ci_shims) ===
       - name: Configure (QEMU, host=MinGW64)
         shell: msys2 {0}
