@@ -185,6 +185,32 @@ jobs:
             --disable-zstd \
             --disable-werror \
             --disable-slirp
+            
+      - name: Injetar ARENA + SHIMS + -Daction/-Dtime via Meson
+        shell: msys2 {0}
+        env:
+          CFLAGS_BASE: ${{ env.CFLAGS_BASE }}
+        run: |
+          set -euxo pipefail
+      
+          export PATH="/mingw64/bin:/usr/bin:/bin"
+      
+          SRC_DIR="$(pwd)"
+          SHIMS_DIR="${SRC_DIR}/ci_shims"
+          ARENA_INC="-I${SRC_DIR}/hw/arena"
+          SHIM_INC="-include ${SHIMS_DIR}/ci_shims.h"
+      
+          EXTRA_CFLAGS="${ARENA_INC} ${SHIM_INC} ${CFLAGS_BASE}"
+          EXTRA_LDFLAGS="${SHIMS_DIR}/libci_shims.a"
+      
+          echo "=== meson configure (c_args) ==="
+          meson configure build -Dc_args="${EXTRA_CFLAGS}"
+      
+          echo "=== meson configure (c_link_args) ==="
+          meson configure build -Dc_link_args="${EXTRA_LDFLAGS}"
+      
+          echo "=== meson configure (dump) ==="
+          meson configure build
 
       # ==== Build com ninja (capturando logs) ====
       - name: Build (ninja com captura de stdout/stderr)
