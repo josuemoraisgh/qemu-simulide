@@ -172,21 +172,21 @@ jobs:
         run: |
           set -euo pipefail
           python3 - << 'EOF'
-      import os
-      
-      path = "qga/meson.build"
-      if not os.path.exists(path):
-          raise SystemExit(0)
-      
-      txt = open(path, "r", encoding="utf-8").read()
-      
-      if "subdir('vss-win32')" in txt:
-          txt = txt.replace(
-              "subdir('vss-win32')",
-              "message('Skipping qga/vss-win32 (ConvertStringToBSTR conflict)')\n# subdir('vss-win32')"
-          )
-          open(path, "w", encoding="utf-8").write(txt)
-      EOF
+          import os
+          
+          path = "qga/meson.build"
+          if not os.path.exists(path):
+              raise SystemExit(0)
+          
+          txt = open(path, "r", encoding="utf-8").read()
+          
+          if "subdir('vss-win32')" in txt:
+              txt = txt.replace(
+                  "subdir('vss-win32')",
+                  "message('Skipping qga/vss-win32 (ConvertStringToBSTR conflict)')\n# subdir('vss-win32')"
+              )
+              open(path, "w", encoding="utf-8").write(txt)
+          EOF
 
 
       # -------------------------------------------------------------------
