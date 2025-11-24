@@ -237,7 +237,6 @@ jobs:
             -Dpie=false \
             -Dslirp=enabled \
             -Ddefault_library=shared \
-            --native-file=config-meson.cross \
           || \
           meson setup build \
             --prefix=/mingw64 \
@@ -250,7 +249,6 @@ jobs:
             -Dpie=false \
             -Dslirp=enabled \
             -Ddefault_library=shared \
-            --native-file=config-meson.cross \
             --reconfigure
 
       # -------------------------------------------------------------------
