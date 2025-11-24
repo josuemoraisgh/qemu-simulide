@@ -225,10 +225,8 @@ jobs:
           export CFLAGS="-D_LIBCPP_VERSION=0"
           export CXXFLAGS="-D_LIBCPP_VERSION=0"
           EXTRA_LDFLAGS="$(cygpath -m "$PWD/ci_shims/libci_shims.a")"
-
           meson setup build \
             --prefix=/mingw64 \
-            -Dqga=disabled \
             -Dsdl=enabled \
             -Dtests=false \
             -Dstrip=false \
@@ -240,7 +238,6 @@ jobs:
           || \
           meson setup build \
             --prefix=/mingw64 \
-            -Dqga=disabled \
             -Dsdl=enabled \
             -Dtests=false \
             -Dstrip=false \
@@ -250,7 +247,6 @@ jobs:
             -Dslirp=enabled \
             -Ddefault_library=shared \
             --reconfigure
-
       # -------------------------------------------------------------------
       # Build QEMU
       # -------------------------------------------------------------------
