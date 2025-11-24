@@ -101,19 +101,27 @@ jobs:
       # -------------------------------------------------------------------
       # 1) Criar stub library para stm32_f103c8_* (evita undefined reference)
       # -------------------------------------------------------------------
-      - name: Criar ci_shims (stub stm32_f103c8_*)
+      - name: Criar ci_shims (stub stm32_f103c8_* + stm32_uart_action + stm32_gpio_in_action)
         shell: msys2 {0}
         run: |
           set -euo pipefail
           mkdir -p ci_shims
+
           cat > ci_shims/ci_shims.c << 'EOF'
+          #include <stdint.h>
+
           void stm32_f103c8_uart_action(void) {}
           void stm32_f103c8_timer_action(void) {}
+
+          // NOVOS STUBS necessários pelo simuliface.c
+          void stm32_uart_action(int port, uint8_t value) {}
+          void stm32_gpio_in_action(int pin, uint8_t value) {}
           EOF
+
           gcc -c ci_shims/ci_shims.c -o ci_shims/ci_shims.o
           ar rcs ci_shims/libci_shims.a ci_shims/ci_shims.o
-          echo "Stub library criada em ci_shims/libci_shims.a"
 
+          echo "Stub library criada em ci_shims/libci_shims.a"
       # -------------------------------------------------------------------
       # 2) Patch em system/simuliface.h (macros action/time compat)
       # -------------------------------------------------------------------
