@@ -268,20 +268,15 @@ jobs:
           fi
           cd slirp_src
 
-          meson setup builddir --prefix=/mingw64 -Dtests=disabled \
-            -Ddefault_library=static \
-            -Doptimization=2 \
-            -Dstrip=false \
-            -Dc_args="-D__cpp_lib_version=0" \
-            -Dcxx_args="-D__cpp_lib_version=0" \
-            || \
-          meson setup builddir --prefix=/mingw64 --reconfigure -Dtests=disabled \
-            -Ddefault_library=static \
-            -Doptimization=2 \
-            -Dstrip=false \
-            -Dc_args="-D__cpp_lib_version=0" \
-            -Dcxx_args="-D__cpp_lib_version=0"
-          
+          meson setup builddir \
+              --prefix=/mingw64 \
+              -Dqga=disabled \
+           || \
+          meson setup builddir \
+              --prefix=/mingw64 \
+              -Dqga=disabled \
+              --reconfigure
+
           ninja -C builddir
           ninja -C builddir install
 
