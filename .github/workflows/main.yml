@@ -249,23 +249,51 @@ jobs:
       # -------------------------------------------------------------------
       # Bundle
       # -------------------------------------------------------------------
+      # -------------------------------------------------------------------
+      # Bundle
+      # -------------------------------------------------------------------
       - name: Preparar bundle
         shell: msys2 {0}
         run: |
           set -euxo pipefail
+
+          # Encontra o primeiro qemu-system-xtensa*.exe gerado
           EXE="$(find build -type f -name 'qemu-system-xtensa*.exe' | head -1)"
           test -f "$EXE"
           BIN_DIR="$(dirname "$EXE")"
+
+          # Cria pasta do bundle e copia os executáveis principais
           mkdir -p bundle
           cp "$BIN_DIR"/qemu*.exe bundle/
+
+          # Copia os arquivos de BIOS/ROM necessários
           mkdir -p bundle/pc-bios
           cp -rn pc-bios/* bundle/pc-bios/ || true
+
+          # Coleta dependências DLL via ntldd
           TMP_DEPS="$(mktemp)"
+
           for exe in bundle/*.exe; do
-            ntldd -R "$exe" | awk '/=>/ && /\.dll/ {print $3}' >> "$TMP_DEPS" || true
+            ntldd -R "$exe" \
+              | awk '/=>/ && /\.dll/ {print $3}' >> "$TMP_DEPS" || true
           done
+
+          # Normaliza caminhos e copia apenas DLLs relevantes
           sort -u "$TMP_DEPS" | while read dll; do
-            test -f "$dll" && cp -n "$dll" bundle/
+            # normalizar caminhos tipo C:WindowsSystem32 -> C:/Windows/System32...
+            dll_fix=$(echo "$dll" | sed 's#^\([A-Za-z]\):#\1:/#')
+
+            # ignorar DLLs do Windows (System32), só queremos as de /mingw64/bin
+            case "$dll_fix" in
+              C:/Windows/*|C:/WINDOWS/*)
+                continue
+                ;;
+            esac
+
+            # se a DLL existir (geralmente em D:/a/_temp/msys64/mingw64/bin), copia
+            if [ -f "$dll_fix" ]; then
+              cp -n "$dll_fix" bundle/
+            fi
           done
 
       # -------------------------------------------------------------------
