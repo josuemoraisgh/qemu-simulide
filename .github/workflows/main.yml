@@ -195,9 +195,7 @@ jobs:
           cd slirp_src
           meson setup builddir --prefix=/mingw64 \
             || meson setup builddir --prefix=/mingw64 --reconfigure
-          ninja -C builddir
-          ninja -C builddir install
-
+          ninja -C build qemu-system-xtensa -v
       # -------------------------------------------------------------------
       # Configure QEMU (AGORA CORRETO)
       # -------------------------------------------------------------------
@@ -218,14 +216,10 @@ jobs:
             --prefix=/mingw64 \
             --target-list=xtensa-softmmu \
             --disable-werror \
-            --disable-unit-tests \
-            --disable-tools \
-            --disable-guest-agent \
             --enable-slirp \
             --enable-sdl \
             --enable-capstone \
             --extra-ldflags="$EXTRA_LDFLAGS"
-
 
       # -------------------------------------------------------------------
       # Build QEMU
