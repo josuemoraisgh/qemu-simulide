@@ -72,6 +72,7 @@ jobs:
             mingw-w64-x86_64-ntldd
             mingw-w64-x86_64-bzip2
             mingw-w64-x86_64-binutils
+            mingw-w64-x86_64-openssl
 
       # -------------------------------------------------------------------
       # Versions info
@@ -107,14 +108,11 @@ jobs:
           mkdir -p ci_shims
           cat > ci_shims/ci_shims.c << 'EOF'
           #include <stdint.h>
-
           void stm32_f103c8_uart_action(void) {}
           void stm32_f103c8_timer_action(void) {}
-
           void stm32_uart_action(int port, uint8_t value) {}
           void stm32_gpio_in_action(int pin, uint8_t value) {}
           EOF
-
           gcc -c ci_shims/ci_shims.c -o ci_shims/ci_shims.o
           ar rcs ci_shims/libci_shims.a ci_shims/ci_shims.o
 
@@ -188,63 +186,49 @@ jobs:
               open(path, "w", encoding="utf-8").write(txt)
           EOF
 
-
       # -------------------------------------------------------------------
-      # Build SLIRP (SEM -Dqga=disabled)
+      # Build SLIRP (sem -Dqga=disabled)
       # -------------------------------------------------------------------
       - name: Build libslirp
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          pacman -S --noconfirm --needed \
-            mingw-w64-x86_64-meson \
-            mingw-w64-x86_64-ninja \
-            mingw-w64-x86_64-glib2 \
-            mingw-w64-x86_64-openssl \
-            mingw-w64-x86_64-python
-
           if [ ! -d slirp_src ]; then
             git clone https://gitlab.freedesktop.org/slirp/libslirp.git slirp_src
           fi
           cd slirp_src
-
           meson setup builddir --prefix=/mingw64 \
           || meson setup builddir --prefix=/mingw64 --reconfigure
-
           ninja -C builddir
           ninja -C builddir install
 
       # -------------------------------------------------------------------
-      # Configure QEMU (AQUI SIM usa -Dqga=disabled)
+      # Configure QEMU (configure + Meson)
       # -------------------------------------------------------------------
-      - name: Configure QEMU (Meson)
+      - name: Configure QEMU (configure + Meson)
         shell: msys2 {0}
         run: |
           set -euo pipefail
           rm -rf build
-      
+          mkdir build
+          cd build
+
+          # Flags usados no código para evitar problemas com _LIBCPP_VERSION
           export CFLAGS="-D_LIBCPP_VERSION=0"
           export CXXFLAGS="-D_LIBCPP_VERSION=0"
-          EXTRA_LDFLAGS="$(cygpath -m "$PWD/ci_shims/libci_shims.a")"
-      
-          meson setup build \
+
+          # Linka a lib de stubs que você criou
+          EXTRA_LDFLAGS="$(cygpath -m "$PWD/../ci_shims/libci_shims.a")"
+
+          # IMPORTANTE: usar ./configure, ele mesmo chama o Meson e gera config-host.mak
+          ../configure \
             --prefix=/mingw64 \
-            -Dsdl=enabled \
-            -Dcapstone=enabled \
-            -Dslirp=enabled \
-            -Ddefault_library=shared \
-            -Dstrip=false \
-            -Doptimization=2 \
-          || \
-          meson setup build \
-            --prefix=/mingw64 \
-            -Dsdl=enabled \
-            -Dcapstone=enabled \
-            -Dslirp=enabled \
-            -Ddefault_library=shared \
-            -Dstrip=false \
-            -Doptimization=2 \
-            --reconfigure
+            --target-list=xtensa-softmmu \
+            --enable-sdl \
+            --enable-slirp \
+            --enable-capstone \
+            --disable-werror \
+            --extra-ldflags="$EXTRA_LDFLAGS"
 
       # -------------------------------------------------------------------
       # Build QEMU
@@ -267,22 +251,17 @@ jobs:
         shell: msys2 {0}
         run: |
           set -euxo pipefail
-
           EXE="$(find build -type f -name 'qemu-system-xtensa*.exe' | head -1)"
           test -f "$EXE"
-
           BIN_DIR="$(dirname "$EXE")"
           mkdir -p bundle
           cp "$BIN_DIR"/qemu*.exe bundle/
-
           mkdir -p bundle/pc-bios
           cp -rn pc-bios/* bundle/pc-bios/ || true
-
           TMP_DEPS="$(mktemp)"
           for exe in bundle/*.exe; do
             ntldd -R "$exe" | awk '/=>/ && /\.dll/ {print $3}' >> "$TMP_DEPS" || true
           done
-
           sort -u "$TMP_DEPS" | while read dll; do
             test -f "$dll" && cp -n "$dll" bundle/
           done
