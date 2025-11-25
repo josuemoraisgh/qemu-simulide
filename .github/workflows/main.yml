@@ -218,7 +218,7 @@ jobs:
             --prefix=/mingw64 \
             --target-list=xtensa-softmmu \
             --disable-werror \
-            --disable-tests \
+            --disable-unit-tests \
             --enable-slirp \
             --enable-sdl \
             --enable-capstone \
