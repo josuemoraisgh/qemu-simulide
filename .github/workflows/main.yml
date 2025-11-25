@@ -219,10 +219,13 @@ jobs:
             --target-list=xtensa-softmmu \
             --disable-werror \
             --disable-unit-tests \
+            --disable-tools \
+            --disable-guest-agent \
             --enable-slirp \
             --enable-sdl \
             --enable-capstone \
             --extra-ldflags="$EXTRA_LDFLAGS"
+
 
       # -------------------------------------------------------------------
       # Build QEMU
