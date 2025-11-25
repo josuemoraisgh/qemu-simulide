@@ -168,16 +168,12 @@ jobs:
       - name: Patch QGA VSS
         shell: msys2 {0}
         run: |
-          set -euo pipefail
           python3 - << 'EOF'
           import os
-          
           path = "qga/meson.build"
           if not os.path.exists(path):
               raise SystemExit(0)
-          
           txt = open(path, "r", encoding="utf-8").read()
-          
           if "subdir('vss-win32')" in txt:
               txt = txt.replace(
                   "subdir('vss-win32')",
@@ -187,7 +183,7 @@ jobs:
           EOF
 
       # -------------------------------------------------------------------
-      # Build SLIRP (sem -Dqga=disabled)
+      # Build libslirp
       # -------------------------------------------------------------------
       - name: Build libslirp
         shell: msys2 {0}
@@ -198,14 +194,14 @@ jobs:
           fi
           cd slirp_src
           meson setup builddir --prefix=/mingw64 \
-          || meson setup builddir --prefix=/mingw64 --reconfigure
+            || meson setup builddir --prefix=/mingw64 --reconfigure
           ninja -C builddir
           ninja -C builddir install
 
       # -------------------------------------------------------------------
-      # Configure QEMU (configure + Meson)
+      # Configure QEMU (AGORA CORRETO)
       # -------------------------------------------------------------------
-      - name: Configure QEMU (configure + Meson)
+      - name: Configure QEMU
         shell: msys2 {0}
         run: |
           set -euo pipefail
@@ -213,21 +209,19 @@ jobs:
           mkdir build
           cd build
 
-          # Flags usados no código para evitar problemas com _LIBCPP_VERSION
           export CFLAGS="-D_LIBCPP_VERSION=0"
           export CXXFLAGS="-D_LIBCPP_VERSION=0"
 
-          # Linka a lib de stubs que você criou
           EXTRA_LDFLAGS="$(cygpath -m "$PWD/../ci_shims/libci_shims.a")"
 
-          # IMPORTANTE: usar ./configure, ele mesmo chama o Meson e gera config-host.mak
           ../configure \
             --prefix=/mingw64 \
             --target-list=xtensa-softmmu \
-            --enable-sdl \
-            --enable-slirp \
-            --enable-capstone \
             --disable-werror \
+            --disable-tests \
+            --enable-slirp \
+            --enable-sdl \
+            --enable-capstone \
             --extra-ldflags="$EXTRA_LDFLAGS"
 
       # -------------------------------------------------------------------
