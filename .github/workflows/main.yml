@@ -185,9 +185,6 @@ jobs:
       # -------------------------------------------------------------------
       # Build libslirp
       # -------------------------------------------------------------------
-      # -------------------------------------------------------------------
-      # Build libslirp
-      # -------------------------------------------------------------------
       - name: Build libslirp
         shell: msys2 {0}
         run: |
@@ -249,9 +246,6 @@ jobs:
       # -------------------------------------------------------------------
       # Bundle
       # -------------------------------------------------------------------
-      # -------------------------------------------------------------------
-      # Bundle
-      # -------------------------------------------------------------------
       - name: Preparar bundle
         shell: msys2 {0}
         run: |
@@ -272,30 +266,34 @@ jobs:
 
           # Coleta dependências DLL via ntldd
           TMP_DEPS="$(mktemp)"
-
+          
           for exe in bundle/*.exe; do
             ntldd -R "$exe" \
               | awk '/=>/ && /\.dll/ {print $3}' >> "$TMP_DEPS" || true
           done
-
-          # Normaliza caminhos e copia apenas DLLs relevantes
+          
           sort -u "$TMP_DEPS" | while read dll; do
-            # normalizar caminhos tipo C:WindowsSystem32 -> C:/Windows/System32...
-            dll_fix=$(echo "$dll" | sed 's#^\([A-Za-z]\):#\1:/#')
-
-            # ignorar DLLs do Windows (System32), só queremos as de /mingw64/bin
+            # Normalizar caminhos de disco:
+            # 1) Corrigir caminhos C:Windows... -> C:/Windows/...
+            # 2) Corrigir caminhos D:a_temp...  -> D:/a/_temp...
+            dll_fix=$(echo "$dll" \
+                        | sed 's#^\([A-Za-z]\):#\1:/#' \
+                        | sed 's#D:/a_temp#D:/a/_temp#' \
+                        | sed 's#D:/a/_tempmsys64#D:/a/_temp/msys64#' \
+                        | sed 's#mingw64bin#mingw64/bin/#')
+          
+            # Ignorar DLLs do Windows (System32)
             case "$dll_fix" in
               C:/Windows/*|C:/WINDOWS/*)
                 continue
                 ;;
             esac
-
-            # se a DLL existir (geralmente em D:/a/_temp/msys64/mingw64/bin), copia
+          
+            # Copiar apenas DLLs reais
             if [ -f "$dll_fix" ]; then
               cp -n "$dll_fix" bundle/
             fi
           done
-
       # -------------------------------------------------------------------
       # ZIP
       # -------------------------------------------------------------------
