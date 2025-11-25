@@ -185,6 +185,9 @@ jobs:
       # -------------------------------------------------------------------
       # Build libslirp
       # -------------------------------------------------------------------
+      # -------------------------------------------------------------------
+      # Build libslirp
+      # -------------------------------------------------------------------
       - name: Build libslirp
         shell: msys2 {0}
         run: |
@@ -193,9 +196,16 @@ jobs:
             git clone https://gitlab.freedesktop.org/slirp/libslirp.git slirp_src
           fi
           cd slirp_src
+
+          # Configura o build em slirp_src/builddir
           meson setup builddir --prefix=/mingw64 \
             || meson setup builddir --prefix=/mingw64 --reconfigure
-          ninja -C build qemu-system-xtensa -v
+
+          # COMPILA dentro de builddir (não é "build"!)
+          ninja -C builddir
+
+          # Instala no prefix /mingw64 usado pelo QEMU
+          ninja -C builddir install
       # -------------------------------------------------------------------
       # Configure QEMU (AGORA CORRETO)
       # -------------------------------------------------------------------
@@ -231,7 +241,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build/_ci_logs
-          ninja -C build -v \
+          ninja -C build qemu-system-xtensa -v \
             1> >(tee build/_ci_logs/_ci_stdout.log) \
             2> >(tee build/_ci_logs/_ci_stderr.log >&2)
 
